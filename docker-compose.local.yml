@@ -1,0 +1,27 @@
+# Local development overlay — no GPU required.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+#
+# vLLM needs CUDA and cannot run on a Mac, so this removes the service entirely
+# (`!reset`, Compose v2.24+) and points the api at any OpenAI-compatible
+# upstream on the host — Ollama, Docker Model Runner, anything speaking that
+# protocol. Everything above the serving layer behaves identically: auth,
+# validation, logging, streaming, the UI.
+#
+# Not covered: PagedAttention, continuous batching, and vLLM's own /metrics.
+# The dashboard is only demonstrable against the real GPU box.
+
+services:
+  # Removed rather than neutered: `deploy: {}` would not clear the nested GPU
+  # device reservation, and the daemon rejects the container before it starts.
+  vllm: !reset null
+
+  api:
+    # The vllm health gate is meaningless when there is no vllm service.
+    depends_on: !reset null
+    environment:
+      API_KEY: "${API_KEY:?set API_KEY in .env}"
+      MODEL_ID: ${LOCAL_MODEL_ID:-llama3.1:latest}
+      VLLM_BASE_URL: ${VLLM_BASE_URL:-http://host.docker.internal:11434/v1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
