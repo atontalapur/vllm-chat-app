@@ -27,6 +27,12 @@ services:
     command:
       - --model=${MODEL_ID:-Qwen/Qwen2.5-7B-Instruct}
       - --max-num-seqs=${VLLM_MAX_NUM_SEQS:-4}
+      # Caps the context window well below the model's 32k default. On a 24GB
+      # card the default leaves thin KV-cache headroom, and leftover KV cache
+      # is what decides how many sequences run concurrently — which is exactly
+      # what the queue-depth panel demonstrates. Raise it if you have more VRAM
+      # and want long conversations more than a visible queue.
+      - --max-model-len=${VLLM_MAX_MODEL_LEN:-8192}
       - --gpu-memory-utilization=${VLLM_GPU_MEMORY_UTILIZATION:-0.90}
       # Prometheus scrapes every 15s; without this the access log is all noise.
       - --disable-access-log-for-endpoints=/health,/metrics

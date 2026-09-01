@@ -8,9 +8,19 @@ bills by the minute, so the teardown step is part of the procedure, not an after
 
 Any provider works. Requirements:
 
-- **24GB+ VRAM** — A10G, L4, or A100. AWS `g5.xlarge`, RunPod `RTX A5000`, or similar.
-- **~60GB disk.** The default boot volume on cheaper tiers is 30-50GB and will fail
-  partway through the model download, which is the slowest possible place to find out.
+- **24GB+ VRAM** — RTX 3090/4090, A10G, L4, or A100. A community-cloud RTX 3090 at
+  $0.10-0.15/hr is the cheapest thing that works: Ampere is compute capability 8.6, well
+  above vLLM's 7.0 floor, with native bf16. A 2-3 hour session costs well under a dollar.
+  Turing (RTX 2080, T4) works but lacks native bf16, so expect fp16 instead.
+- **~60GB disk.** This is the trap on cheap listings. Community and interruptible hosts
+  often default to 10-30GB, and the failure lands partway through the model download,
+  which is the slowest possible place to find out. Disk is usually a cheap add-on;
+  confirm it before starting, not after.
+- **Prefer on-demand over interruptible** for a recording session. Spot pricing around
+  $0.07/hr is real, but a preemption can take the volume with it and cost you a 15GB
+  re-download — more expensive in billed minutes than the on-demand premium.
+- **Check network speed.** A slow community host turns a 10-minute cold start into 40
+  minutes of billed time, which outweighs any GPU-hour saving.
 - **NVIDIA Container Toolkit** installed. Most "GPU + Docker" images ship it. Verify:
 
 ```bash
