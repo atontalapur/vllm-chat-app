@@ -112,9 +112,12 @@ Send a few chat messages first and confirm tokens stream in smoothly.
 Then, with the chat and dashboard side by side, start the burst:
 
 ```bash
-docker compose exec api python3 /app/loadtest.py \
-  --api-key "$API_KEY" --concurrency 12 --requests 60
+docker compose exec api python3 /app/loadtest.py --concurrency 12 --requests 60
 ```
+
+No `--api-key` flag: the script falls back to the `API_KEY` already in the api
+container's environment. Passing `"$API_KEY"` from the host shell instead expands to
+an empty string, because `.env` is read by Compose, not by your shell.
 
 Concurrency 12 against the default `VLLM_MAX_NUM_SEQS=4` means three times as many
 requests as slots. What to watch, in order of how well it demonstrates the point:
