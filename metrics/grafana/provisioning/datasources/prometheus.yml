@@ -1,0 +1,14 @@
+# Datasource provisioning. Without this file the dashboard below loads with no
+# data source attached and every panel renders empty — the failure mode is
+# silent, which is why this is checked in rather than clicked in.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

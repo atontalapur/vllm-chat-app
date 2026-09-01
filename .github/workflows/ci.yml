@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A second push to the same PR cancels the first — no point burning runners on
+# a diff nobody will merge.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Lint
+        run: uvx ruff@0.14.2 check .
+
+      - name: Format check
+        run: uvx ruff@0.14.2 format --check .
+
+  types-and-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Type check
+        run: uv run mypy app
+
+      # The upstream model server is mocked, so the full request path is
+      # covered here without a GPU runner.
+      - name: Test
+        run: uv run pytest -q
+
+  ui-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Test
+        run: uv run pytest -q
+
+  build-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `docker compose config` only parses YAML. Without an actual build, a
+      # broken Dockerfile merges undetected and fails on the GPU box, where a
+      # rebuild costs a cold start on billed time.
+      - name: Build api image
+        run: docker build ./api
+
+      - name: Build ui image
+        run: docker build ./ui
+
+  compose-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Catches compose syntax and interpolation errors without needing a GPU:
+      # the stack itself can't run in CI, but a broken compose file can and
+      # should fail here rather than after a 10-minute cold start on a paid box.
+      - name: Validate docker-compose.yml
+        run: |
+          cp .env.example .env
+          # .env.example ships required secrets empty on purpose, and compose
+          # refuses to interpolate an empty ${VAR:?} — that guard is what stops
+          # a real deployment starting up unconfigured. Supply throwaway values
+          # here rather than weakening the guard.
+          {
+            echo "API_KEY=ci-validation-only"
+            echo "GF_SECURITY_ADMIN_PASSWORD=ci-validation-only"
+          } >> .env
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.local.yml config --quiet
+          echo "both compose configurations valid"

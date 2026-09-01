@@ -1,0 +1,17 @@
+[project]
+name = "vllm-chat-ui"
+version = "0.1.0"
+description = "Streamlit chat interface"
+requires-python = ">=3.12"
+dependencies = [
+    "streamlit>=1.40",
+    "requests>=2.32",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
