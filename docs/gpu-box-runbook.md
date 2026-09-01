@@ -6,7 +6,21 @@ bills by the minute, so the teardown step is part of the procedure, not an after
 
 ## 1. Provision
 
-Any provider works. Requirements:
+**The instance must be a real VM, not a container.** This is the single easiest way to
+waste an hour. Vast.ai and RunPod rent *Docker containers* by default: you SSH into a
+container, not a machine, and there is no init manager, so `docker compose` cannot run
+inside one. Vast.ai's own documentation lists Docker Compose among the things only their
+VM instances support.
+
+- **Vast.ai** — use the VM filter and an Ubuntu 22.04/24.04 VM image. Fewer machines
+  qualify and boot is slower, but the stack then runs as written.
+- **RunPod** — same container limitation.
+- **Lambda Labs / AWS g5 / any normal cloud VM** — real VMs, nothing special needed.
+
+Do not pick a template that pre-runs a model server (vLLM, TGI, Ollama,
+text-generation-webui). It will start its own server and compete for VRAM.
+
+Other requirements:
 
 - **24GB+ VRAM** — RTX 3090/4090, A10G, L4, or A100. A community-cloud RTX 3090 at
   $0.10-0.15/hr is the cheapest thing that works: Ampere is compute capability 8.6, well
