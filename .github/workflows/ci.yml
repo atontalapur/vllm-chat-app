@@ -52,6 +52,36 @@ jobs:
       - name: Test
         run: uv run pytest -q
 
+  ui-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Test
+        run: uv run pytest -q
+
+  build-images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # `docker compose config` only parses YAML. Without an actual build, a
+      # broken Dockerfile merges undetected and fails on the GPU box, where a
+      # rebuild costs a cold start on billed time.
+      - name: Build api image
+        run: docker build ./api
+
+      - name: Build ui image
+        run: docker build ./ui
+
   compose-validate:
     runs-on: ubuntu-latest
     steps:

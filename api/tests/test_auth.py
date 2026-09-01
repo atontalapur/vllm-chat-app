@@ -49,3 +49,23 @@ def test_valid_key_passes_auth(
     respx_mock.post(UPSTREAM_URL).mock(side_effect=httpx.ConnectError("refused"))
     r = client.post("/chat/stream", json=valid_body, headers={"X-API-Key": VALID_KEY})
     assert r.status_code == 502
+
+
+
+async def test_non_ascii_key_is_rejected_not_crashed() -> None:
+    """A non-ASCII key must be rejected with 401, never raise.
+
+    Starlette decodes inbound headers as latin-1, so a raw high byte arrives
+    as a non-ASCII str. secrets.compare_digest raises TypeError on those,
+    which surfaced as an unauthenticated 500 with a traceback in the log.
+    Exercised at the dependency directly: HTTP clients refuse to encode a
+    non-ASCII header value, so this path is unreachable through TestClient.
+    """
+    import pytest
+    from fastapi import HTTPException
+
+    from app.auth import require_api_key
+
+    with pytest.raises(HTTPException) as exc:
+        await require_api_key("caf\xe9")
+    assert exc.value.status_code == 401
