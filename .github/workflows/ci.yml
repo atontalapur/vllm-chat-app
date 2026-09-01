@@ -63,5 +63,14 @@ jobs:
       - name: Validate docker-compose.yml
         run: |
           cp .env.example .env
+          # .env.example ships required secrets empty on purpose, and compose
+          # refuses to interpolate an empty ${VAR:?} — that guard is what stops
+          # a real deployment starting up unconfigured. Supply throwaway values
+          # here rather than weakening the guard.
+          {
+            echo "API_KEY=ci-validation-only"
+            echo "GF_SECURITY_ADMIN_PASSWORD=ci-validation-only"
+          } >> .env
           docker compose config --quiet
-          echo "compose config valid"
+          docker compose -f docker-compose.yml -f docker-compose.local.yml config --quiet
+          echo "both compose configurations valid"
