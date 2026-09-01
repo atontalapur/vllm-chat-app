@@ -1,0 +1,33 @@
+# Workspace-level tooling config. Each service (api/, ui/) carries its own
+# pyproject.toml for dependencies; lint and format rules are shared from here so
+# they cannot drift between services.
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # import sorting
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "ASYNC",# async correctness — matters for the streaming proxy
+    "S",    # bandit security checks
+]
+ignore = [
+    "S101",  # assert is fine in tests
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S105", "S106"]  # hardcoded test credentials are intentional
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+# Third-party packages without stubs; not worth vendoring types for a demo stack.
+[[tool.mypy.overrides]]
+module = ["streamlit.*", "prometheus_fastapi_instrumentator.*"]
+ignore_missing_imports = true

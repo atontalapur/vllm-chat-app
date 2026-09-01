@@ -1,0 +1,151 @@
+# vllm-chat-app — self-hosted LLM chat stack.
+#
+# Request flow (full stack, once all services land):
+#
+#   Browser (via SSH tunnel)
+#      |
+#      v
+#   ui (Streamlit, 127.0.0.1:8501)
+#      |  POST /chat/stream, X-API-Key            <- app layer is always exercised
+#      v
+#   api (FastAPI: auth, validation, logging, streaming proxy)
+#      |  POST /v1/chat/completions (stream)
+#      v
+#   vllm (OpenAI-compatible server) --> GPU
+#      ^
+#      |  scrape /metrics every 15s
+#   metrics (Prometheus + Grafana)
+#
+# SECURITY: no service publishes to 0.0.0.0. On a public-IP GPU box that would
+# mean (a) anyone hitting vLLM directly, bypassing the auth/validation layer
+# entirely, and (b) anyone using a GPU you pay for by the minute. Reach the UI
+# over an SSH tunnel instead — see README.
+
+services:
+  vllm:
+    image: vllm/vllm-openai:${VLLM_IMAGE_TAG:-v0.28.0-cu129}
+    command:
+      - --model=${MODEL_ID:-Qwen/Qwen2.5-7B-Instruct}
+      - --max-num-seqs=${VLLM_MAX_NUM_SEQS:-4}
+      - --gpu-memory-utilization=${VLLM_GPU_MEMORY_UTILIZATION:-0.90}
+      # Prometheus scrapes every 15s; without this the access log is all noise.
+      - --disable-access-log-for-endpoints=/health,/metrics
+    environment:
+      # Empty unless the configured model is gated.
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      # Weights (~15GB) are cached here, not baked into the image, so a restart
+      # doesn't re-download them. This is the image's default HF cache path.
+      - hf-cache:/root/.cache/huggingface
+    # vLLM's engine needs host shared memory; without this it fails at load.
+    ipc: host
+    # Internal only. Deliberately NO `ports:` — see the security note above.
+    expose:
+      - "8000"
+    healthcheck:
+      # The image ships python3 but not necessarily curl.
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+      # Cold start = image pull + ~15GB weight download + load. 5m grace plus
+      # 40x15s ≈ 15min total tolerance, comfortably over the observed 5-10min.
+      start_period: 5m
+      interval: 15s
+      timeout: 10s
+      retries: 40
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  api:
+    build: ./api
+    volumes:
+      # Read-only mount rather than baked into the image: the load generator
+      # changes independently of the service and needs no rebuild to adjust.
+      - ./scripts/loadtest.py:/app/loadtest.py:ro
+    environment:
+      API_KEY: "${API_KEY:?set API_KEY in .env - generate one with openssl rand -hex 32}"
+      MODEL_ID: ${MODEL_ID:-Qwen/Qwen2.5-7B-Instruct}
+      # Unset in production: the api then defaults to the vllm service above.
+      # Local development points this at any OpenAI-compatible upstream.
+      VLLM_BASE_URL: ${VLLM_BASE_URL:-http://vllm:8000/v1}
+    depends_on:
+      vllm:
+        condition: service_healthy
+    # Internal only. Publishing this would let anyone bypass nothing useful,
+    # but it is also simply not needed: the UI is the entry point.
+    expose:
+      - "8080"
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  ui:
+    build: ./ui
+    environment:
+      API_URL: http://api:8080
+      API_KEY: "${API_KEY:?set API_KEY in .env}"
+      MAX_TURNS: ${MAX_TURNS:-20}
+    depends_on:
+      api:
+        condition: service_healthy
+    # Loopback only. On a public-IP GPU box, binding 0.0.0.0 would hand anyone
+    # who finds the address free use of a GPU billed by the minute. Reach it
+    # over an SSH tunnel instead.
+    ports:
+      - "127.0.0.1:8501:8501"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    volumes:
+      - ./metrics/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    # No depends_on: Prometheus scrapes on its own schedule and picks targets
+    # up whenever they become reachable. Gating it on vllm would just delay
+    # the dashboard for no benefit.
+    expose:
+      - "9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.5.1
+    environment:
+      # Never the admin/admin default, even though the port is loopback-only.
+      GF_SECURITY_ADMIN_PASSWORD: "${GF_SECURITY_ADMIN_PASSWORD:?set GF_SECURITY_ADMIN_PASSWORD in .env}"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # The dashboard is the landing page, so a recording starts on the panels
+      # rather than on a login-shaped home screen.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/vllm.json
+    volumes:
+      # Datasource and dashboard are both provisioned from disk, so
+      # `docker compose up` yields a working dashboard with no clicking.
+      - ./metrics/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./metrics/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    # Loopback only, same reasoning as the UI: reach it over the SSH tunnel.
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+
+volumes:
+  hf-cache:
+  prometheus-data:
+  grafana-data:
