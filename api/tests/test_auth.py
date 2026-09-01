@@ -5,6 +5,9 @@ have no reason to hold the application key, and 401ing them breaks startup
 ordering and leaves the dashboard silently empty.
 """
 
+import pytest
+from app.auth import require_api_key
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from tests.conftest import VALID_KEY
@@ -51,7 +54,6 @@ def test_valid_key_passes_auth(
     assert r.status_code == 502
 
 
-
 async def test_non_ascii_key_is_rejected_not_crashed() -> None:
     """A non-ASCII key must be rejected with 401, never raise.
 
@@ -61,11 +63,6 @@ async def test_non_ascii_key_is_rejected_not_crashed() -> None:
     Exercised at the dependency directly: HTTP clients refuse to encode a
     non-ASCII header value, so this path is unreachable through TestClient.
     """
-    import pytest
-    from fastapi import HTTPException
-
-    from app.auth import require_api_key
-
     with pytest.raises(HTTPException) as exc:
         await require_api_key("caf\xe9")
     assert exc.value.status_code == 401
