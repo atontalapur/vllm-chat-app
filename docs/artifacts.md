@@ -10,7 +10,7 @@ phone or a second monitor while the terminal is busy.
 | [vLLM Run of Show](https://claude.ai/code/artifact/0726d40c-4e4c-4a3d-b304-04b7b2c85bf4) | Nine-beat recording script: what to do on screen and what to say while it happens | this file |
 
 **These links are private to the repo owner's account** unless explicitly shared. The
-markdown sources in `docs/` are the canonical, always-readable copies — treat the hosted
+markdown sources in `docs/` are the canonical, always-readable copies. Treat the hosted
 pages as a convenience layer, not the source of truth.
 
 ## Why the command page is split by location
