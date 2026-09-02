@@ -28,16 +28,19 @@ metrics (Prometheus + Grafana)    queue depth, TTFT, tokens/sec, KV-cache %
 
 ## Status
 
-Under construction, built in reviewed steps. Landed so far:
+Built in reviewed steps, then run end to end on real hardware: an RTX 3090 (24GB)
+under vLLM 0.28.0, driver 580.95.05.
 
 - [x] vLLM service (pinned image, GPU reservation, health-gated, weights cached)
-- [x] CI (lint, types, tests, compose validation)
-- [x] FastAPI application layer (auth, validation, logging, streaming proxy) — 28 tests
+- [x] CI — lint, types, tests, image builds, compose validation
+- [x] FastAPI application layer (auth, validation, logging, streaming proxy)
 - [x] Streamlit UI
-- [x] Compose wiring for the three core services, plus a GPU-free local overlay
+- [x] Compose wiring for all four services, plus a GPU-free local overlay
 - [x] Prometheus + Grafana, dashboard and datasource provisioned as code
 - [x] Concurrent load script
-- [ ] Demo recording (needs the GPU box)
+- [x] Verified on GPU — 36 tests green, cold start to serving in ~3 minutes, all six
+      dashboard metrics confirmed present in vLLM 0.28.0
+- [ ] Demo recording
 
 ## Requirements
 
