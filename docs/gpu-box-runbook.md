@@ -6,11 +6,35 @@ bills by the minute, so the teardown step is part of the procedure, not an after
 
 ## 1. Provision
 
-Any provider works. Requirements:
+**The instance must be a real VM, not a container.** This is the single easiest way to
+waste an hour. Vast.ai and RunPod rent *Docker containers* by default: you SSH into a
+container, not a machine, and there is no init manager, so `docker compose` cannot run
+inside one. Vast.ai's own documentation lists Docker Compose among the things only their
+VM instances support.
 
-- **24GB+ VRAM** — A10G, L4, or A100. AWS `g5.xlarge`, RunPod `RTX A5000`, or similar.
-- **~60GB disk.** The default boot volume on cheaper tiers is 30-50GB and will fail
-  partway through the model download, which is the slowest possible place to find out.
+- **Vast.ai** — use the VM filter and an Ubuntu 22.04/24.04 VM image. Fewer machines
+  qualify and boot is slower, but the stack then runs as written.
+- **RunPod** — same container limitation.
+- **Lambda Labs / AWS g5 / any normal cloud VM** — real VMs, nothing special needed.
+
+Do not pick a template that pre-runs a model server (vLLM, TGI, Ollama,
+text-generation-webui). It will start its own server and compete for VRAM.
+
+Other requirements:
+
+- **24GB+ VRAM** — RTX 3090/4090, A10G, L4, or A100. A community-cloud RTX 3090 at
+  $0.10-0.15/hr is the cheapest thing that works: Ampere is compute capability 8.6, well
+  above vLLM's 7.0 floor, with native bf16. A 2-3 hour session costs well under a dollar.
+  Turing (RTX 2080, T4) works but lacks native bf16, so expect fp16 instead.
+- **~60GB disk.** This is the trap on cheap listings. Community and interruptible hosts
+  often default to 10-30GB, and the failure lands partway through the model download,
+  which is the slowest possible place to find out. Disk is usually a cheap add-on;
+  confirm it before starting, not after.
+- **Prefer on-demand over interruptible** for a recording session. Spot pricing around
+  $0.07/hr is real, but a preemption can take the volume with it and cost you a 15GB
+  re-download — more expensive in billed minutes than the on-demand premium.
+- **Check network speed.** A slow community host turns a 10-minute cold start into 40
+  minutes of billed time, which outweighs any GPU-hour saving.
 - **NVIDIA Container Toolkit** installed. Most "GPU + Docker" images ship it. Verify:
 
 ```bash
@@ -88,9 +112,12 @@ Send a few chat messages first and confirm tokens stream in smoothly.
 Then, with the chat and dashboard side by side, start the burst:
 
 ```bash
-docker compose exec api python3 /app/loadtest.py \
-  --api-key "$API_KEY" --concurrency 12 --requests 60
+docker compose exec api python3 /app/loadtest.py --concurrency 12 --requests 60
 ```
+
+No `--api-key` flag: the script falls back to the `API_KEY` already in the api
+container's environment. Passing `"$API_KEY"` from the host shell instead expands to
+an empty string, because `.env` is read by Compose, not by your shell.
 
 Concurrency 12 against the default `VLLM_MAX_NUM_SEQS=4` means three times as many
 requests as slots. What to watch, in order of how well it demonstrates the point:
