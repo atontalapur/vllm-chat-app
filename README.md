@@ -94,13 +94,14 @@ A single chat session never queues, so the dashboard stays flat and the interest
 behaviour is invisible. Force a queue:
 
 ```bash
-docker compose exec api python3 /tmp/loadtest.py \
-  --api-key "$API_KEY" --concurrency 12 --requests 60
-
-# or from the repo on the box
-python3 scripts/loadtest.py --url http://localhost:8080 \
-  --api-key "$API_KEY" --concurrency 12 --requests 60
+docker compose exec api python3 /app/loadtest.py --concurrency 12 --requests 60
 ```
+
+Run it **inside the api container**, not on the box's shell: the api has no published
+port, so `http://localhost:8080` does not resolve from the host. The script also picks
+up `API_KEY` from the container's own environment, so no `--api-key` flag is needed —
+passing `"$API_KEY"` from the host shell expands to an empty string, because `.env` is
+read by Compose, not by your shell.
 
 Set `--concurrency` above `VLLM_MAX_NUM_SEQS` (default 4) so more requests arrive than
 there are slots. On the **Request queue depth** panel, `waiting` climbs above zero while
@@ -219,6 +220,7 @@ download time on the very first boot.
 
 - [Architecture](docs/architecture.md) — request flow, failure behaviour, security boundary
 - [GPU box runbook](docs/gpu-box-runbook.md) — provision, verify, record, tear down
+- [Command reference](docs/commands.md) — every command, grouped by where you run it
 
 ## License
 
