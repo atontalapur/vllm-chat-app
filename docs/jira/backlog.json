@@ -13,8 +13,8 @@
     {"id": 1, "name": "Sprint 1: signal capture", "goal": "Ten messages through the UI produce ten traces joined to ten log lines by X-Request-ID, with the latency panel flat."},
     {"id": 2, "name": "Sprint 2: eval harness", "goal": "Score the base model twice and know the run-to-run variance the gate must clear."},
     {"id": 3, "name": "Sprint 3: curation", "goal": "Run curation over accumulated traces and show the funnel counts at each stage."},
-    {"id": 4, "name": "Sprint 4: training and tracking", "goal": "One adapter trained from real traces with its MLflow run open on screen."},
-    {"id": 5, "name": "Sprint 5: gate and promotion", "goal": "Promote a winner, then deliberately promote a loser and watch the gate refuse it."},
+    {"id": 4, "name": "Sprint 4: train and track", "goal": "One adapter trained from real traces with its MLflow run open on screen."},
+    {"id": 5, "name": "Sprint 5: gate and promote", "goal": "Promote a winner, then deliberately promote a loser and watch the gate refuse it."},
     {"id": 6, "name": "Sprint 6: operate and tune", "goal": "Three full cycles recorded, at least one rejected, thresholds set from observed results."}
   ],
   "stories": [

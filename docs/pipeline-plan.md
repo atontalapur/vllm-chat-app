@@ -174,7 +174,7 @@ training run can name exactly which dataset it consumed.
 
 ---
 
-## Sprint 4: training and tracking
+## Sprint 4: train and track
 
 **Goal:** one manual fine-tune cycle end to end, fully recorded. Automation comes later.
 

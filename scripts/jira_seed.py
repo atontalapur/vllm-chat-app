@@ -125,15 +125,13 @@ class Jira:
         return None
 
     def board_id(self, project_key: str) -> int:
-        boards = self.request(
-            "GET", f"/rest/agile/1.0/board?projectKeyOrId={project_key}&type=scrum"
-        )
+        # Team-managed projects report their board as type "simple", not
+        # "scrum", so no type filter: sprint support is decided by the
+        # project's Sprints feature, and the sprint create call reports that.
+        boards = self.request("GET", f"/rest/agile/1.0/board?projectKeyOrId={project_key}")
         values = boards.get("values", [])
         if not values:
-            sys.exit(
-                f"no scrum board found for {project_key}. Create the project as a "
-                "Scrum project (not Kanban) so sprints exist."
-            )
+            sys.exit(f"no board found for {project_key}")
         return int(values[0]["id"])
 
     def create_issue(self, fields: dict[str, Any]) -> str:
@@ -284,6 +282,10 @@ def main() -> None:
     args = parser.parse_args()
 
     backlog = json.loads(BACKLOG.read_text())
+    # Jira rejects longer names at sprint creation, after issues already exist.
+    too_long = [s["name"] for s in backlog["sprints"] if len(s["name"]) >= 30]
+    if too_long:
+        sys.exit(f"sprint names must be under 30 characters: {too_long}")
     if args.dry_run:
         dry_run(backlog)
     elif args.csv:
