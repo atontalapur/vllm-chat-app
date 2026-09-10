@@ -16,3 +16,4 @@ venv/
 # uv
 .venv/
 *.egg-info/
+docs/jira/.keys.json
