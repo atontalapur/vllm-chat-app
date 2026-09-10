@@ -42,8 +42,8 @@ KEYS = ROOT / "docs" / "jira" / ".keys.json"
 
 # Jira Cloud names the estimate field differently depending on project type.
 # Team-managed projects use "Story point estimate"; company-managed use
-# "Story Points". Discovered at runtime rather than hardcoded, because the
-# customfield_NNNNN id differs per site.
+# "Story Points". Both names usually exist site-wide, so the lookup is scoped
+# to the fields the target project's Story screen accepts.
 STORY_POINT_FIELD_NAMES = ("Story point estimate", "Story Points")
 
 
@@ -116,23 +116,32 @@ class Jira:
             detail = exc.read().decode(errors="replace")[:800]
             sys.exit(f"{method} {path} -> {exc.code}\n{detail}")
 
-    def story_points_field(self) -> str | None:
-        fields = self.request("GET", "/rest/api/3/field")
-        by_name = {f["name"]: f["id"] for f in fields}
+    def story_points_field(self, project_key: str) -> str | None:
+        # Only Stories carry points in the backlog, so ask createmeta which
+        # fields that issue type accepts in this project.
+        types = self.request("GET", f"/rest/api/3/issue/createmeta/{project_key}/issuetypes")
+        story = next((t for t in types.get("issueTypes", []) if t["name"] == "Story"), None)
+        if story is None:
+            return None
+        meta = self.request(
+            "GET", f"/rest/api/3/issue/createmeta/{project_key}/issuetypes/{story['id']}"
+        )
+        by_name = {f["name"]: f["fieldId"] for f in meta.get("fields", [])}
         for name in STORY_POINT_FIELD_NAMES:
             if name in by_name:
                 return by_name[name]
         return None
 
     def board_id(self, project_key: str) -> int:
-        # Team-managed projects report their board as type "simple", not
-        # "scrum", so no type filter: sprint support is decided by the
-        # project's Sprints feature, and the sprint create call reports that.
+        # Company-managed projects can list a kanban board first, which
+        # cannot own sprints. Team-managed projects report their board as
+        # "simple", so prefer either sprint-capable type over the rest.
         boards = self.request("GET", f"/rest/agile/1.0/board?projectKeyOrId={project_key}")
         values = boards.get("values", [])
         if not values:
             sys.exit(f"no board found for {project_key}")
-        return int(values[0]["id"])
+        sprint_boards = [b for b in values if b.get("type") in ("scrum", "simple")]
+        return int((sprint_boards or values)[0]["id"])
 
     def create_issue(self, fields: dict[str, Any]) -> str:
         created = self.request("POST", "/rest/api/3/issue", {"fields": fields})
@@ -220,7 +229,7 @@ def seed(backlog: dict[str, Any]) -> None:
     project = os.environ["JIRA_PROJECT_KEY"]
     state = load_state()
 
-    points_field = jira.story_points_field()
+    points_field = jira.story_points_field(project)
     if points_field is None:
         print("warning: no story points field found; points will not be set")
 
