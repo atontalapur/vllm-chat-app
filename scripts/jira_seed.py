@@ -57,7 +57,8 @@ def load_env_file() -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip().strip('"'))
+        key = key.strip().removeprefix("export ").strip()
+        os.environ.setdefault(key, value.strip().strip("\"'"))
 
 
 def adf(description: str, acceptance: list[str]) -> dict[str, Any]:
@@ -115,6 +116,8 @@ class Jira:
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode(errors="replace")[:800]
             sys.exit(f"{method} {path} -> {exc.code}\n{detail}")
+        except (urllib.error.URLError, TimeoutError) as exc:
+            sys.exit(f"{method} {path} -> {exc} (check JIRA_BASE_URL and the network)")
 
     def story_points_field(self, project_key: str) -> str | None:
         # Only Stories carry points in the backlog, so ask createmeta which
@@ -207,11 +210,11 @@ def dry_run(backlog: dict[str, Any]) -> None:
     epics = {e["id"]: e["summary"] for e in backlog["epics"]}
     for sprint in backlog["sprints"]:
         stories = [s for s in backlog["stories"] if s["sprint"] == sprint["id"]]
-        points = sum(s["points"] or 0 for s in stories)
+        points = sum(s["points"] for s in stories if s["points"] is not None)
         print(f"\n{sprint['name']}  ({points} pts)")
         print(f"  goal: {sprint['goal']}")
         for s in stories:
-            pts = f"{s['points']}pt" if s["points"] else "spike"
+            pts = f"{s['points']}pt" if s["points"] is not None else "spike"
             print(f"  [{s['type']:<5}] {s['id']:<5} {s['summary']}  ({pts}, {epics[s['epic']]})")
 
 
