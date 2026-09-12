@@ -1,0 +1,130 @@
+{
+  "note": "Captured 2026-09-11 from Ollama's OpenAI-compatible endpoint (llama3.1) with logprobs=true, top_logprobs=2. Shape is the OpenAI schema vLLM implements; re-capture on the GPU box to confirm byte-for-byte.",
+  "request": {
+    "stream": true,
+    "logprobs": true,
+    "top_logprobs": 2,
+    "max_tokens": 40
+  },
+  "first_chunk": {
+    "id": "chatcmpl-808",
+    "object": "chat.completion.chunk",
+    "created": 1789182316,
+    "model": "llama3.1:latest",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "delta": {
+          "role": "assistant",
+          "content": "India"
+        },
+        "finish_reason": null,
+        "logprobs": {
+          "content": [
+            {
+              "token": "India",
+              "logprob": -0.1701253354549408,
+              "bytes": [
+                73,
+                110,
+                100,
+                105,
+                97
+              ],
+              "top_logprobs": [
+                {
+                  "token": "India",
+                  "logprob": -0.1701253354549408,
+                  "bytes": [
+                    73,
+                    110,
+                    100,
+                    105,
+                    97
+                  ]
+                },
+                {
+                  "token": "The",
+                  "logprob": -2.6326725482940674,
+                  "bytes": [
+                    84,
+                    104,
+                    101
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "middle_chunk": {
+    "id": "chatcmpl-808",
+    "object": "chat.completion.chunk",
+    "created": 1789182316,
+    "model": "llama3.1:latest",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "delta": {
+          "content": " final"
+        },
+        "finish_reason": null,
+        "logprobs": {
+          "content": [
+            {
+              "token": " final",
+              "logprob": -0.0649067685008049,
+              "bytes": [
+                32,
+                102,
+                105,
+                110,
+                97,
+                108
+              ],
+              "top_logprobs": [
+                {
+                  "token": " final",
+                  "logprob": -0.0649067685008049,
+                  "bytes": [
+                    32,
+                    102,
+                    105,
+                    110,
+                    97,
+                    108
+                  ]
+                },
+                {
+                  "token": ",",
+                  "logprob": -3.790405035018921,
+                  "bytes": [
+                    44
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "final_chunk": {
+    "id": "chatcmpl-808",
+    "object": "chat.completion.chunk",
+    "created": 1789182316,
+    "model": "llama3.1:latest",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "delta": {},
+        "finish_reason": "stop"
+      }
+    ]
+  }
+}
