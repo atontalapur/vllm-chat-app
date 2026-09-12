@@ -129,7 +129,7 @@ class Jira:
         meta = self.request(
             "GET", f"/rest/api/3/issue/createmeta/{project_key}/issuetypes/{story['id']}"
         )
-        by_name = {f["name"]: f["fieldId"] for f in meta.get("fields", [])}
+        by_name: dict[str, str] = {f["name"]: f["fieldId"] for f in meta.get("fields", [])}
         for name in STORY_POINT_FIELD_NAMES:
             if name in by_name:
                 return by_name[name]
@@ -168,7 +168,8 @@ class Jira:
 
 def load_state() -> dict[str, Any]:
     if KEYS.exists():
-        return json.loads(KEYS.read_text())
+        state: dict[str, Any] = json.loads(KEYS.read_text())
+        return state
     return {"epics": {}, "stories": {}, "sprints": {}}
 
 
