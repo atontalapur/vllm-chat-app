@@ -28,6 +28,11 @@ jobs:
       - name: Format check
         run: uvx ruff@0.14.2 format --check .
 
+      # The eval set is the ruler every promotion is measured with. A malformed
+      # item fails silently at scoring time, so the schema is checked here.
+      - name: Validate eval set
+        run: python3 pipeline/eval/validate.py pipeline/eval/worldcup-v1.jsonl
+
   types-and-tests:
     runs-on: ubuntu-latest
     defaults:
