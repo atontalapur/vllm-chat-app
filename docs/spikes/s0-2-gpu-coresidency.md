@@ -1,6 +1,6 @@
 # S0-2: can the trainer share the GPU with vLLM
 
-**Jira:** CFT-9. **Status:** desk estimate done, measurement on the box pending.
+**Jira:** CFT-9. **Status:** measured on an RTX 3090, 2026-09-16. Stop-train-restart.
 
 ## Question
 
@@ -41,7 +41,7 @@ weights, and two copies do not fit in 24GB regardless of tuning.
 **Co-residency on 48GB (A6000, L40S, A40):** 21.6 + 10 = 31.6GB, fits with room. This is
 the card class where a continuous loop becomes possible.
 
-## Prediction
+## Prediction (before measuring)
 
 Stop-train-restart on 24GB. The loop is batched: accumulate traces while serving, stop
 serving, train, restart, evaluate, promote or discard.
@@ -63,7 +63,7 @@ Consequences if confirmed:
   part of "GPU cost per cycle".
 - **Not a blocker for any sprint.** Sprint 1-3 and 5 are unaffected.
 
-## Measurement on the box (to run)
+## Measurement on the box (as run)
 
 Three numbers, then a yes/no.
 
@@ -81,7 +81,8 @@ nvidia-smi --query-gpu=memory.used --format=csv
 
 # 3. QLoRA footprint alone (serving stopped)
 docker compose stop vllm api ui
-docker run --rm --gpus all -v hf-cache:/root/.cache/huggingface \
+# Compose prefixes the volume with the project name; check `docker volume ls`.
+docker run --rm --gpus all -v vllm-chat-app_hf-cache:/root/.cache/huggingface \
   -e HF_TOKEN pytorch/pytorch:2.8.0-cuda12.9-cudnn9-runtime bash -c '
 pip -q install transformers peft bitsandbytes accelerate && python3 - <<PY
 import torch, time
@@ -104,13 +105,29 @@ docker compose up -d
 
 ## Result
 
-_To fill in on the box:_
+Run 2026-09-16 on a Vast.ai RTX 3090 VM (24,576 MiB), driver 580.95.05, vLLM 0.28.0,
+QLoRA via `pytorch/pytorch:2.8.0-cuda12.9-cudnn9-runtime` with bitsandbytes 4-bit.
 
 | Measurement | GB |
 |---|---|
-| Serving, default settings | |
-| Serving, shrunk (1 seq, 2048 ctx) | |
-| QLoRA, one step, peak | |
-| Shrunk serving + QLoRA together | fits / OOM |
+| Serving, default settings | 21.0 (21,023 MiB) |
+| Serving, shrunk (1 seq, 2048 ctx, 0.72 util) | 16.7 (16,675 MiB) |
+| QLoRA, one step, peak (serving stopped) | 13.2 (loaded 5.9, peak after backward 13.2) |
+| Shrunk serving + QLoRA together | **OOM** at 7.1 GB allocated by the trainer, 50 MiB free on the card |
 
-**Decision:** co-resident / stop-train-restart
+**Decision: stop-train-restart.**
+
+Notes against the estimate:
+
+- The QLoRA peak came in at 13.2 GB, above the 8-10 GB desk figure. The 4-bit base is
+  5.9 GB as expected; the extra is activations plus the fp32 logits over a 152k vocab at
+  seq 1024. Batch 1 / seq 1024 / q,v only is the floor, so S4-2 should treat 13 GB as the
+  minimum and expect more with longer sequences or more target modules.
+- Co-residency would need ~30 GB even shrunk. A 48 GB card fits it with room; nothing
+  on 24 GB does.
+- vLLM stayed healthy through the trainer's OOM. A failed co-resident train does not
+  take serving down, which is one less failure mode for S4-3 to guard against.
+- Recovery: `docker compose stop vllm api ui`, train, `docker compose up -d` brought the
+  full stack back to healthy in about 60 s with cached weights. That is the serving gap
+  S6-4 charges to the cycle cost.
+- One training step (forward + backward, seq 1024) took 1.0 s on the 3090.

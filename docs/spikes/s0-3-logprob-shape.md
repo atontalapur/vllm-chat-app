@@ -1,7 +1,7 @@
 # S0-3: streamed logprob delta shape
 
-**Jira:** CFT-10. **Status:** shape captured against Ollama's OpenAI-compatible endpoint
-and checked against vLLM's serving code; GPU-box re-capture pending.
+**Jira:** CFT-10. **Status:** captured against vLLM 0.28.0 on an RTX 3090, 2026-09-16. Two
+rows in the table below changed from the earlier Ollama capture.
 
 ## Question
 
@@ -46,10 +46,10 @@ Things S1-2's accumulator must handle:
 
 | Observation | Consequence |
 |---|---|
-| `choices[0].logprobs.content` is a **list** | Iterate it. vLLM builds it from all token ids in the delta, so a chunk can carry more than one token. Never index `[0]`. |
-| The final chunk has `"delta": {}`, a `finish_reason`, and no logprobs | Read `finish_reason` here. `length` means the response hit `max_tokens` (S3-4 drops those). |
+| `choices[0].logprobs.content` is a **list** | Iterate it. Observed on the box: one chunk carried 11 tokens (` 2011 Cricket World Cup final was won`) under a single `delta.content`. Never index `[0]`. |
+| The final chunk carries the last token, its logprobs, **and** `finish_reason` together | No empty tail chunk. Read `finish_reason` on the same chunk you accumulate. `length` means the response hit `max_tokens` (S3-4 drops those). Ollama sent a separate empty chunk; vLLM does not. |
 | vLLM clamps `logprob` to `>= -9999.0` | A `-inf` never appears, so plain arithmetic is safe. |
-| The first chunk carries `"role": "assistant"` alongside the first token | No separate role-only chunk to skip. |
+| The first chunk is role-only: `{"role": "assistant", "content": ""}` with `"logprobs": null` | Skip chunks whose `logprobs` is null. Ollama merged the role into the first token chunk; vLLM does not. |
 | Reasoning models put tokens in `delta.reasoning`, still with logprobs | Qwen2.5-7B-Instruct has no reasoning channel, so moot for us. If the base model changes, decide whether reasoning tokens count. |
 | `bytes` is the UTF-8 of the token, `null` when undecodable | Ignore for the proxy; `token` and `logprob` are enough. |
 
@@ -63,18 +63,20 @@ Store per trace:
 - `min_logprob` and `n_tokens` alongside. The mean hides one badly-chosen token in a long
   fluent answer; the minimum does not. Cheap to keep and gives Sprint 6 a second knob.
 
-Worked example from the captured sample. Prompt: *"Who won the 2011 Cricket World Cup
-final and by how many runs?"* (a trap: India won by wickets, not runs.)
+Worked example from the vLLM capture (`s0-3-sample-stream.json`). Prompt: *"Who won the
+2011 Cricket World Cup final and by how many runs?"* (a trap: India won by wickets, not runs.)
 
 ```
-response      India won the 2011 Cricket World Cup final against Sri Lanka by 6 wickets.
-n_tokens      19
-mean_logprob  -0.094   exp -> 0.911
-min_logprob   -0.946   on " against", where the model committed to correcting the premise
+response      The 2011 Cricket World Cup final was won by India, defeating Sri Lanka by
+              5 wickets. This was India's second World   [cut by max_tokens=30]
+n_tokens      30
+mean_logprob  -0.221   exp -> 0.801
+min_logprob   -1.692   on " India"
 ```
 
-Interpretation: high average confidence, one point of hesitation exactly where the model
-decided how to handle the false premise. The min surfaces what the mean smooths over.
+Interpretation: the model handled the false premise (answered in wickets) but got the
+number wrong (it was 6). Mean confidence 0.80 did not flag it. This is the case the
+judge exists for: logprobs catch hesitation, not confident errors. Keep both signals.
 
 ## Thresholds
 
@@ -90,7 +92,7 @@ Every chunk grows by roughly one small object per token (~120 bytes with
 the client, so the UI sees the same payload it does today plus the logprobs field.
 S1-2 puts the request flag behind config so the cost can be switched off.
 
-## GPU-box confirmation (to run)
+## GPU-box confirmation (as run)
 
 ```bash
 docker compose exec api python3 - <<'PY'
