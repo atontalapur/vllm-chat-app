@@ -1,6 +1,6 @@
 # S0-1: runtime LoRA loading on vLLM v0.28.0
 
-**Jira:** CFT-8. **Status:** desk research done, GPU confirmation pending.
+**Jira:** CFT-8. **Status:** confirmed on an RTX 3090, 2026-09-16.
 
 ## Question
 
@@ -65,7 +65,7 @@ never proxy them.
 - **S5-3** resolves a `lora_name`, not a path. Promotion = load adapter, then flip the name.
   Rollback = flip the name back; the previous adapter is still loaded if `--max-loras >= 2`.
 
-## GPU-box confirmation (to run)
+## GPU-box confirmation (as run)
 
 Uses a public rank-32 adapter for `Qwen/Qwen2.5-7B-Instruct` so this does not wait on
 Sprint 4: `zjudai/flowertune-medical-lora-qwen2.5-7b-instruct`
@@ -119,10 +119,14 @@ nvidia-smi --query-gpu=memory.used --format=csv
 
 ## Result
 
-_To fill in on the box:_
+Run 2026-09-16 on a Vast.ai RTX 3090 VM, driver 580.95.05.
 
-- vLLM version string from `/version`:
-- `/v1/models` lists `medical` after load: yes / no
-- Chat completion with `"model": "medical"` returns 200: yes / no
-- VRAM before / after load:
-- Anything that did not match the docs:
+- vLLM version string from `/version`: `0.28.0`
+- `/v1/models` lists `medical` after load: **yes**, with `"parent": "Qwen/Qwen2.5-7B-Instruct"`
+- Chat completion with `"model": "medical"` returns 200: **yes**, coherent medical answer
+- VRAM before / after load: 20,103 MiB / 20,103 MiB. No measurable delta for a 40MB
+  rank-32 adapter; vLLM reserves the LoRA slots at startup, not at load time.
+- Serving footprint with `--enable-lora --max-loras=2` was 20,103 MiB against 21,023 MiB
+  without, so LoRA support costs about 900 MiB of KV cache out of the same 0.90 budget.
+- Anything that did not match the docs: nothing. Flag names, endpoint path, request body,
+  and the `VLLM_ALLOW_RUNTIME_LORA_UPDATING` gate all worked as written above.

@@ -1,83 +1,125 @@
 {
-  "note": "Captured 2026-09-11 from Ollama's OpenAI-compatible endpoint (llama3.1) with logprobs=true, top_logprobs=2. Shape is the OpenAI schema vLLM implements; re-capture on the GPU box to confirm byte-for-byte.",
+  "note": "Captured 2026-09-16 from vLLM 0.28.0 (Qwen/Qwen2.5-7B-Instruct) on an RTX 3090 with logprobs=true, top_logprobs=0. Replaces the earlier Ollama capture.",
   "request": {
     "stream": true,
     "logprobs": true,
-    "top_logprobs": 2,
-    "max_tokens": 40
+    "top_logprobs": 0,
+    "max_tokens": 30
   },
   "first_chunk": {
-    "id": "chatcmpl-808",
+    "id": "chatcmpl-b72b6a24d7293975",
     "object": "chat.completion.chunk",
-    "created": 1789182316,
-    "model": "llama3.1:latest",
-    "system_fingerprint": "fp_ollama",
+    "created": 1789526095,
+    "model": "Qwen/Qwen2.5-7B-Instruct",
     "choices": [
       {
         "index": 0,
         "delta": {
           "role": "assistant",
-          "content": "India"
+          "content": ""
         },
-        "finish_reason": null,
-        "logprobs": {
-          "content": [
-            {
-              "token": "India",
-              "logprob": -0.1701253354549408,
-              "bytes": [
-                73,
-                110,
-                100,
-                105,
-                97
-              ],
-              "top_logprobs": [
-                {
-                  "token": "India",
-                  "logprob": -0.1701253354549408,
-                  "bytes": [
-                    73,
-                    110,
-                    100,
-                    105,
-                    97
-                  ]
-                },
-                {
-                  "token": "The",
-                  "logprob": -2.6326725482940674,
-                  "bytes": [
-                    84,
-                    104,
-                    101
-                  ]
-                }
-              ]
-            }
-          ]
-        }
+        "logprobs": null,
+        "finish_reason": null
       }
-    ]
+    ],
+    "prompt_token_ids": null,
+    "prompt_text": null
   },
-  "middle_chunk": {
-    "id": "chatcmpl-808",
+  "multi_token_chunk": {
+    "id": "chatcmpl-b72b6a24d7293975",
     "object": "chat.completion.chunk",
-    "created": 1789182316,
-    "model": "llama3.1:latest",
-    "system_fingerprint": "fp_ollama",
+    "created": 1789526095,
+    "model": "Qwen/Qwen2.5-7B-Instruct",
     "choices": [
       {
         "index": 0,
         "delta": {
-          "content": " final"
+          "content": " 2011 Cricket World Cup final was won"
         },
-        "finish_reason": null,
         "logprobs": {
           "content": [
             {
+              "token": " ",
+              "logprob": -0.00019167017308063805,
+              "bytes": [
+                32
+              ],
+              "top_logprobs": []
+            },
+            {
+              "token": "2",
+              "logprob": 0.0,
+              "bytes": [
+                50
+              ],
+              "top_logprobs": []
+            },
+            {
+              "token": "0",
+              "logprob": 0.0,
+              "bytes": [
+                48
+              ],
+              "top_logprobs": []
+            },
+            {
+              "token": "1",
+              "logprob": 0.0,
+              "bytes": [
+                49
+              ],
+              "top_logprobs": []
+            },
+            {
+              "token": "1",
+              "logprob": 0.0,
+              "bytes": [
+                49
+              ],
+              "top_logprobs": []
+            },
+            {
+              "token": " Cricket",
+              "logprob": -0.013477057218551636,
+              "bytes": [
+                32,
+                67,
+                114,
+                105,
+                99,
+                107,
+                101,
+                116
+              ],
+              "top_logprobs": []
+            },
+            {
+              "token": " World",
+              "logprob": -5.960462772236497e-07,
+              "bytes": [
+                32,
+                87,
+                111,
+                114,
+                108,
+                100
+              ],
+              "top_logprobs": []
+            },
+            {
+              "token": " Cup",
+              "logprob": -2.3841855067985307e-07,
+              "bytes": [
+                32,
+                67,
+                117,
+                112
+              ],
+              "top_logprobs": []
+            },
+            {
               "token": " final",
-              "logprob": -0.0649067685008049,
+              "logprob": -0.0023076115176081657,
               "bytes": [
                 32,
                 102,
@@ -86,45 +128,109 @@
                 97,
                 108
               ],
-              "top_logprobs": [
-                {
-                  "token": " final",
-                  "logprob": -0.0649067685008049,
-                  "bytes": [
-                    32,
-                    102,
-                    105,
-                    110,
-                    97,
-                    108
-                  ]
-                },
-                {
-                  "token": ",",
-                  "logprob": -3.790405035018921,
-                  "bytes": [
-                    44
-                  ]
-                }
-              ]
+              "top_logprobs": []
+            },
+            {
+              "token": " was",
+              "logprob": -2.253030106658116e-05,
+              "bytes": [
+                32,
+                119,
+                97,
+                115
+              ],
+              "top_logprobs": []
+            },
+            {
+              "token": " won",
+              "logprob": -0.00031931069679558277,
+              "bytes": [
+                32,
+                119,
+                111,
+                110
+              ],
+              "top_logprobs": []
             }
           ]
-        }
+        },
+        "finish_reason": null,
+        "token_ids": null
+      }
+    ]
+  },
+  "single_token_chunk": {
+    "id": "chatcmpl-b72b6a24d7293975",
+    "object": "chat.completion.chunk",
+    "created": 1789526095,
+    "model": "Qwen/Qwen2.5-7B-Instruct",
+    "choices": [
+      {
+        "index": 0,
+        "delta": {
+          "content": " India"
+        },
+        "logprobs": {
+          "content": [
+            {
+              "token": " India",
+              "logprob": -0.4477565884590149,
+              "bytes": [
+                32,
+                73,
+                110,
+                100,
+                105,
+                97
+              ],
+              "top_logprobs": []
+            }
+          ]
+        },
+        "finish_reason": null,
+        "token_ids": null
       }
     ]
   },
   "final_chunk": {
-    "id": "chatcmpl-808",
+    "id": "chatcmpl-b72b6a24d7293975",
     "object": "chat.completion.chunk",
-    "created": 1789182316,
-    "model": "llama3.1:latest",
-    "system_fingerprint": "fp_ollama",
+    "created": 1789526095,
+    "model": "Qwen/Qwen2.5-7B-Instruct",
     "choices": [
       {
         "index": 0,
-        "delta": {},
-        "finish_reason": "stop"
+        "delta": {
+          "content": " World"
+        },
+        "logprobs": {
+          "content": [
+            {
+              "token": " World",
+              "logprob": -0.25652363896369934,
+              "bytes": [
+                32,
+                87,
+                111,
+                114,
+                108,
+                100
+              ],
+              "top_logprobs": []
+            }
+          ]
+        },
+        "finish_reason": "length",
+        "stop_reason": null,
+        "token_ids": null
       }
-    ]
+    ],
+    "system_fingerprint": "vllm-0.28.0-b0c62709"
+  },
+  "proxy": {
+    "n_tokens": 30,
+    "mean_logprob": -0.2213,
+    "min_logprob": -1.6923,
+    "min_token": " India"
   }
 }
