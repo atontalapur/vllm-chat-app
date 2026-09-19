@@ -42,7 +42,7 @@
     {"id": "S1-3", "epic": "E1", "sprint": 1, "type": "Story", "points": 3,
      "summary": "Async trace writer off the request path",
      "description": "As a user, I want tracing to never slow down my chat, so the streaming experience is unchanged.",
-     "acceptance": ["Trace writes happen after the stream closes, off the request path", "A store that is down or slow drops the trace and increments a counter rather than failing or delaying the request", "Test covers the store-unavailable path"]},
+     "acceptance": ["Trace writes happen after the stream closes, off the request path", "A store that is down or slow drops the trace and increments a counter rather than failing or delaying the request", "Test covers the store-unavailable path", "api connects as an INSERT-only role, not the superuser from POSTGRES_USER (deferred from the S1-1 review)"]},
     {"id": "S1-4", "epic": "E1", "sprint": 1, "type": "Story", "points": 2,
      "summary": "Trace metrics exported to Prometheus",
      "description": "As an operator, I want trace volume and failures on the dashboard, so silent data loss is visible.",

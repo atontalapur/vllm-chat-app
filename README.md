@@ -75,8 +75,9 @@ git clone https://github.com/atontalapur/vllm-chat-app.git
 cd vllm-chat-app
 cp .env.example .env
 
-# API_KEY and GF_SECURITY_ADMIN_PASSWORD are required and ship empty on purpose
+# API_KEY, POSTGRES_PASSWORD and GF_SECURITY_ADMIN_PASSWORD are required and ship empty on purpose
 sed -i "s|^API_KEY=.*|API_KEY=$(openssl rand -hex 32)|" .env
+sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 16)|" .env
 sed -i "s|^GF_SECURITY_ADMIN_PASSWORD=.*|GF_SECURITY_ADMIN_PASSWORD=$(openssl rand -hex 16)|" .env
 
 docker compose up -d --build
@@ -271,8 +272,8 @@ publishing it would be the same problem behind a nicer interface.
 `prometheus` show a bare `8000/tcp` and `9090/tcp` with no host binding at all, while
 `ui` and `grafana` bind to `127.0.0.1` only. Everything is reached over an SSH tunnel.
 
-`.env` is gitignored and never committed. `.env.example` ships with `API_KEY` and
-`GF_SECURITY_ADMIN_PASSWORD` empty, and compose uses `${VAR:?}` so an empty value stops
+`.env` is gitignored and never committed. `.env.example` ships with `API_KEY`,
+`POSTGRES_PASSWORD` and `GF_SECURITY_ADMIN_PASSWORD` empty, and compose uses `${VAR:?}` so an empty value stops
 startup with a readable message instead of booting a stack with no password. That guard
 is also why CI supplies throwaway values for its compose validation job.
 

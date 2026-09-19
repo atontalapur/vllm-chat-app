@@ -130,6 +130,7 @@ cd vllm-chat-app
 cp .env.example .env
 
 sed -i "s|^API_KEY=.*|API_KEY=$(openssl rand -hex 32)|" .env
+sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 16)|" .env
 sed -i "s|^GF_SECURITY_ADMIN_PASSWORD=.*|GF_SECURITY_ADMIN_PASSWORD=$(openssl rand -hex 16)|" .env
 
 grep -E '^(API_KEY|GF_SECURITY_ADMIN_PASSWORD)=' .env      # save the Grafana password

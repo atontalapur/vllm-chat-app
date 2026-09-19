@@ -79,8 +79,12 @@ indistinguishable from a slow model, so the user waits forever with nothing to a
 ## Startup ordering
 
 ```
-vllm (healthcheck: /health, 5m grace + 40 x 15s)
-  |  condition: service_healthy
+vllm (healthcheck: /health, 5m grace + 40 x 15s)     postgres (pg_isready)
+  |  condition: service_healthy                        |  condition: service_healthy
+  |                                                    v
+  |                                                  db-migrate (one-shot, exits 0)
+  |  condition: service_completed_successfully         |
+  +<---------------------------------------------------+
   v
 api (healthcheck: /health, liveness only)
   |  condition: service_healthy
@@ -89,6 +93,18 @@ ui
 
 prometheus, grafana — no ordering dependency; they scrape whatever is reachable
 ```
+
+`db-migrate` applies `pipeline/db/migrations/*.sql` in order, records each file in
+`schema_migrations`, and exits. A migration that fails rolls back and exits non-zero, which
+keeps `api` from starting against a half-applied schema. Re-runs apply nothing. The
+migration finishes in seconds, so it never adds to the cold start; vllm is always the
+long pole.
+
+The gate holds for `docker compose up` only. After a host reboot the daemon restarts
+`api` and `postgres` under their `restart: unless-stopped` policies without re-running
+`db-migrate`, so a data volume replaced between runs comes back empty and unnoticed until
+the next `compose up`. The trace writer (S1-3) is fail-open for the same reason: a store
+that is down or behind must cost traces, never chat.
 
 Cold start is 5-10 minutes: the image pull plus roughly 15GB of weights plus load time.
 The healthcheck budget is deliberately generous, because a still-loading model is not an
@@ -108,8 +124,9 @@ Nothing binds to `0.0.0.0`. On a public-IP GPU box that would mean:
 - **UI published** — the Streamlit page has no login of its own, so anyone who found the
   address would get free use of a GPU billed by the minute.
 
-`ui` and `grafana` bind to `127.0.0.1`; `api`, `vllm`, and `prometheus` publish nothing at
-all and are reachable only on the internal Compose network. Access is via SSH tunnel.
+`ui` and `grafana` bind to `127.0.0.1`; `api`, `vllm`, `postgres`, and `prometheus` publish
+nothing at all and are reachable only on the internal Compose network. Access is via SSH
+tunnel.
 
 `/health` and `/metrics` are exempt from the API key. The Compose healthcheck and
 Prometheus have no reason to hold the application's secret, and 401ing them would break

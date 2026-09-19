@@ -17,8 +17,11 @@ services:
   vllm: !reset null
 
   api:
-    # The vllm health gate is meaningless when there is no vllm service.
-    depends_on: !reset null
+    # The vllm health gate is meaningless when there is no vllm service, but
+    # the trace store is CPU-only and runs locally as-is, so keep that gate.
+    depends_on: !override
+      db-migrate:
+        condition: service_completed_successfully
     environment:
       API_KEY: "${API_KEY:?set API_KEY in .env}"
       MODEL_ID: ${LOCAL_MODEL_ID:-llama3.1:latest}
