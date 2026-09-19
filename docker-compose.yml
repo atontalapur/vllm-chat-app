@@ -85,6 +85,8 @@ services:
     depends_on:
       vllm:
         condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
     # Internal only. Publishing this would let anyone bypass nothing useful,
     # but it is also simply not needed: the UI is the entry point.
     expose:
@@ -116,6 +118,48 @@ services:
     ports:
       - "127.0.0.1:8501:8501"
     restart: unless-stopped
+
+  postgres:
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_DB: traces
+      POSTGRES_USER: traces
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env - generate one with openssl rand -hex 16}"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    # Internal only, same rule as vllm: no `ports:`. Only api (writer) and the
+    # pipeline jobs (readers) ever talk to it, all on the compose network.
+    expose:
+      - "5432"
+    healthcheck:
+      # -h localhost forces TCP. Without it pg_isready answers over the unix
+      # socket, which the entrypoint's temporary initdb-only server also
+      # serves, so the check would pass before the real server listens.
+      test: ["CMD-SHELL", "pg_isready -h localhost -U traces -d traces"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # One-shot. Applies pipeline/db/migrations in order, records each in
+  # schema_migrations, and exits. api waits for it to finish, so the schema
+  # is always current before the first trace is written. Re-running is a
+  # no-op for files already applied.
+  db-migrate:
+    image: postgres:17.11-alpine
+    environment:
+      PGHOST: postgres
+      PGDATABASE: traces
+      PGUSER: traces
+      PGPASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}"
+    volumes:
+      - ./pipeline/db/migrations:/migrations:ro
+      - ./pipeline/db/migrate.sh:/migrate.sh:ro
+    entrypoint: ["/bin/sh", "/migrate.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   prometheus:
     image: prom/prometheus:v3.1.0
@@ -153,5 +197,6 @@ services:
 
 volumes:
   hf-cache:
+  postgres-data:
   prometheus-data:
   grafana-data:

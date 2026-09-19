@@ -56,6 +56,12 @@ cp .env.example .env
 
 # Required:
 #   API_KEY                     openssl rand -hex 32
+#   POSTGRES_PASSWORD           openssl rand -hex 16
+#                               Read once at first start, when the data volume is
+#                               created. Changing it in .env later does not change the
+#                               database; db-migrate then fails auth and api stays down.
+#                               To rotate: docker compose exec postgres psql -U traces -c
+#                               "ALTER USER traces PASSWORD '<new>'" then update .env.
 #   GF_SECURITY_ADMIN_PASSWORD  openssl rand -hex 16
 # Leave VLLM_BASE_URL and LOCAL_MODEL_ID commented out — those are for laptop dev.
 

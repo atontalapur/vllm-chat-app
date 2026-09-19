@@ -105,7 +105,33 @@ jobs:
           {
             echo "API_KEY=ci-validation-only"
             echo "GF_SECURITY_ADMIN_PASSWORD=ci-validation-only"
+            echo "POSTGRES_PASSWORD=ci-validation-only"
           } >> .env
           docker compose config --quiet
           docker compose -f docker-compose.yml -f docker-compose.local.yml config --quiet
           echo "both compose configurations valid"
+
+      # The trace store needs no GPU, so its migration runs for real here:
+      # a migration that fails to apply blocks api from starting on the box.
+      - name: Apply migrations
+        run: |
+          # psql via the db-migrate service, so the checks do not depend on
+          # postgres surviving --exit-code-from (compose versions differ there).
+          q() { docker compose run --rm --entrypoint psql db-migrate -tAc "$1"; }
+          docker compose up --quiet-pull --exit-code-from db-migrate db-migrate
+          q "SELECT 1 FROM information_schema.columns WHERE table_name = 'traces' AND column_name = 'request_id'" | grep -q 1
+          # Second run must be a no-op: exits 0 and records nothing new.
+          before=$(q 'SELECT count(*) FROM schema_migrations')
+          docker compose up --exit-code-from db-migrate db-migrate
+          after=$(q 'SELECT count(*) FROM schema_migrations')
+          test "$before" = "$after"
+          # A broken file must exit non-zero, roll back its DDL, and record nothing.
+          mkdir -p bad && cp pipeline/db/migrations/*.sql bad/
+          echo 'CREATE TABLE half (x int); SELECT 1/0;' > bad/0002_bad.sql
+          ! docker compose run --rm -e MIGRATIONS_DIR=/bad -v "$PWD/bad:/bad:ro" db-migrate
+          test "$(q 'SELECT count(*) FROM schema_migrations')" = "$after"
+          test -z "$(q "SELECT to_regclass('half')")"
+          # An edited applied file must be refused: applied migrations are immutable.
+          rm bad/0002_bad.sql && echo '-- edited after apply' >> bad/0001_traces.sql
+          ! docker compose run --rm -e MIGRATIONS_DIR=/bad -v "$PWD/bad:/bad:ro" db-migrate
+          docker compose down -v
