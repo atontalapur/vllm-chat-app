@@ -17,3 +17,6 @@ venv/
 .venv/
 *.egg-info/
 docs/jira/.keys.json
+
+# Generated demo media (video takes, stills) — regenerate with scripts/s0-2-cut.sh
+brag-output/
