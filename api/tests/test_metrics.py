@@ -12,8 +12,8 @@ import json
 import re
 from pathlib import Path
 
-from app.metrics import TRACE_DROPS, TRACE_FAILURES
 from fastapi.testclient import TestClient
+from prometheus_client import REGISTRY, generate_latest
 
 DASHBOARD = Path(__file__).resolve().parents[2] / "metrics/grafana/dashboards/vllm.json"
 
@@ -29,15 +29,29 @@ TRACE_METRICS = [
 
 def test_trace_metrics_are_exposed(client: TestClient) -> None:
     """/metrics is what Prometheus scrapes; being in the registry is not enough."""
-    # Counters with labels do not appear until a label combination is used, so
-    # touch one of each. This mirrors what a real process does within seconds.
-    TRACE_FAILURES.labels(reason="database").inc(0)
-    TRACE_DROPS.labels(reason="queue_full").inc(0)
-
     body = client.get("/metrics").text
 
     for name in TRACE_METRICS:
         assert name in body, f"{name} is defined but not exported"
+
+
+def test_every_failure_reason_is_exported_before_it_ever_happens() -> None:
+    """A healthy process must still export the loss counters, at zero.
+
+    A labelled metric has no series until a label combination is used, so
+    without pre-declaring them a process that has never failed exports nothing
+    for these families and their panels read "No data" — indistinguishable from
+    "nothing has gone wrong yet", which is the confusion they exist to remove.
+
+    Found by running the documented dashboard command against a real container
+    and seeing two of the four metrics missing.
+    """
+    exported = generate_latest(REGISTRY).decode()
+
+    for reason in ("timeout", "database", "unexpected"):
+        assert f'trace_write_failures_total{{reason="{reason}"}}' in exported
+    for reason in ("disabled", "queue_full"):
+        assert f'trace_drops_total{{reason="{reason}"}}' in exported
 
 
 def test_metrics_endpoint_needs_no_api_key(client: TestClient) -> None:

@@ -44,3 +44,22 @@ TRACE_QUEUE_DEPTH = Gauge(
     "trace_queue_depth",
     "Traces waiting to be written.",
 )
+
+# Every reason a labelled counter can carry, declared up front.
+#
+# A labelled metric has no series until some label combination is used, so a
+# healthy process that has never failed exports *nothing* for these two
+# families, and their panels render "No data" — which looks exactly like
+# "nothing has gone wrong yet". That is the precise confusion these counters
+# exist to remove, so the series are created at zero here instead.
+#
+# It also makes rate() correct from the first failure. Without a prior sample
+# at zero, the first increment is the series' first point, and rate() has no
+# earlier value to compare it against.
+_FAILURE_REASONS = ("timeout", "database", "unexpected")
+_DROP_REASONS = ("disabled", "queue_full")
+
+for _reason in _FAILURE_REASONS:
+    TRACE_FAILURES.labels(reason=_reason)
+for _reason in _DROP_REASONS:
+    TRACE_DROPS.labels(reason=_reason)
