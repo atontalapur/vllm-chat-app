@@ -15,6 +15,7 @@ Route auth is deliberately per-route, not global:
 import time
 import uuid
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -24,12 +25,38 @@ from app.auth import RequireApiKey
 from app.config import settings
 from app.logging import logger
 from app.schemas import ChatRequest, ErrorBody
+from app.trace_store import TraceStore
+from app.tracing import StreamAccumulator
 from app.vllm_client import UpstreamError, stream_chat
+
+# Module-level so tests can substitute it. start() decides whether it does
+# anything; with no DSN configured it stays disabled and submit() is a no-op.
+trace_store = TraceStore(
+    dsn=settings.trace_db_url,
+    queue_size=settings.trace_queue_size,
+    write_timeout_s=settings.trace_write_timeout_s,
+)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Own the trace store's background worker for the life of the process.
+
+    start() never raises: a trace store that will not open must not stop the
+    api from serving chat.
+    """
+    await trace_store.start()
+    try:
+        yield
+    finally:
+        await trace_store.aclose()
+
 
 app = FastAPI(
     title="vllm-chat-app API",
     description="Application layer between the chat UI and the model server.",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # Exposes /metrics. Left unauthenticated on purpose — see the module docstring.
@@ -112,7 +139,8 @@ async def chat_stream(req: ChatRequest, request: Request) -> Response:
             ).model_dump(),
         )
 
-    stream = stream_chat(req, request_id)
+    accumulator = StreamAccumulator()
+    stream = stream_chat(req, request_id, accumulator=accumulator)
 
     # Pull the first chunk before returning, so a connection failure becomes a
     # real 502 instead of a 200 whose body immediately errors. Once the
@@ -144,6 +172,33 @@ async def chat_stream(req: ChatRequest, request: Request) -> Response:
         yield first
         async for chunk in stream:
             yield chunk
+
+        # Only after the last chunk has gone out. submit() returns immediately
+        # and is documented never to raise.
+        #
+        # Belt and braces all the same: this code runs *inside* the response
+        # body generator, so anything escaping here would abort a response the
+        # user has already received in full — turning a bookkeeping bug into a
+        # visibly broken chat. The guarantee is worth making structural instead
+        # of trusting a docstring two modules away.
+        #
+        # Reached only on a clean end of stream. If the client disconnects
+        # early this generator is closed instead, and the partial trace is
+        # discarded rather than written: a response the user never saw, with no
+        # finish_reason, is not a training example.
+        try:
+            trace_store.submit(
+                accumulator.build(
+                    request_id=request_id,
+                    model=settings.model_id,
+                    messages=[m.model_dump() for m in req.messages],
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - tracing may never break a response
+            logger.error(
+                "trace submission failed",
+                extra={"context": {"request_id": request_id, "error": str(exc)}},
+            )
 
     return StreamingResponse(
         body(),

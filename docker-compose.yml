@@ -82,6 +82,11 @@ services:
       # Unset in production: the api then defaults to the vllm service above.
       # Local development points this at any OpenAI-compatible upstream.
       VLLM_BASE_URL: ${VLLM_BASE_URL:-http://vllm:8000/v1}
+      # Connects as api_writer (migration 0002), which may INSERT into traces
+      # and nothing else — never as POSTGRES_USER, which owns the table. Unset
+      # this and the api runs with tracing disabled rather than failing.
+      TRACE_DB_URL: "postgresql://api_writer:${API_DB_PASSWORD:?set API_DB_PASSWORD in .env - generate one with openssl rand -hex 16}@postgres:5432/traces"
+      CAPTURE_LOGPROBS: ${CAPTURE_LOGPROBS:-true}
     depends_on:
       vllm:
         condition: service_healthy
@@ -152,6 +157,9 @@ services:
       PGDATABASE: traces
       PGUSER: traces
       PGPASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}"
+      # Read by 0002 to create the api's INSERT-only role. The migration runner
+      # passes it to psql as a variable; it is never stored in a migration file.
+      API_DB_PASSWORD: "${API_DB_PASSWORD:?set API_DB_PASSWORD in .env}"
     volumes:
       - ./pipeline/db/migrations:/migrations:ro
       - ./pipeline/db/migrate.sh:/migrate.sh:ro
