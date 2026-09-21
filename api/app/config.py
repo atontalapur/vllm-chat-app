@@ -29,6 +29,13 @@ class Settings(BaseSettings):
     # long completions mid-stream.
     upstream_connect_timeout_s: float = 10.0
 
+    # Ask the upstream server for per-token logprobs, which become the
+    # confidence proxy on each trace. Costs roughly 120 bytes per token on the
+    # vllm -> api hop (docs/spikes/s0-3-logprob-shape.md) and nothing on the
+    # api -> UI hop, since the line is forwarded either way. Off means traces
+    # are still written, with a null mean_logprob.
+    capture_logprobs: bool = True
+
     # Guards against a client sending an unbounded conversation history that
     # would overrun the model's context window. Characters, not tokens: exact
     # token counting would need the model's tokenizer, and this only has to be
