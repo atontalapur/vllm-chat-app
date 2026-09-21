@@ -33,6 +33,13 @@ jobs:
       - name: Validate eval set
         run: python3 pipeline/eval/validate.py pipeline/eval/worldcup-v1.jsonl
 
+      # Grafana silently provisions a dashboard with broken JSON as "no
+      # dashboard at all", which on a demo box is discovered at the worst
+      # possible moment. The metric names the panels query are checked
+      # against the exported ones in api/tests/test_metrics.py.
+      - name: Validate Grafana dashboard JSON
+        run: python3 -c "import json; json.load(open('metrics/grafana/dashboards/vllm.json'))"
+
   types-and-tests:
     runs-on: ubuntu-latest
     defaults:
