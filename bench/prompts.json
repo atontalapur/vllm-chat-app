@@ -1,0 +1,24 @@
+{
+  "version": "bench-v1",
+  "note": "Fixed prompt set. Every target in bench/ sends exactly these, in this order, so throughput and latency numbers compare. Changing this file invalidates comparisons against results produced with an earlier version; bump 'version' and keep the old file if that happens.",
+  "design": [
+    "Twelve prompts, matching the 12-way concurrency the repo already documents (scripts/loadtest.py:94).",
+    "Each asks for an explanation rather than a fact, so the model generates to max_tokens instead of stopping early. A prompt answered in nine tokens makes a throughput benchmark measure prompt processing, not generation.",
+    "Roughly even prompt lengths, so no single request dominates the prefill cost.",
+    "Deliberately generic subject matter: this measures serving, not the World Cup eval set in pipeline/eval/, which is held out from everything and must never be used here."
+  ],
+  "prompts": [
+    "Explain how a graphics processor differs from a central processor, and why that difference matters for running large neural networks.",
+    "Describe what happens inside a transformer model when it processes a sentence, step by step, in plain language.",
+    "Explain the difference between training a model and running inference on one, and why the hardware needs differ.",
+    "Describe why language models have a context window, what happens when a conversation exceeds it, and how systems handle that.",
+    "Explain what quantisation means for a neural network, what is gained, and what is given up.",
+    "Describe how a web server handles many simultaneous requests, and where the bottlenecks usually appear.",
+    "Explain why caching is difficult in distributed systems, with attention to invalidation.",
+    "Describe the practical differences between a relational database and a document database, and when each fits.",
+    "Explain what a container is, how it differs from a virtual machine, and why that distinction matters in production.",
+    "Describe how public key cryptography lets two strangers communicate securely over an untrusted network.",
+    "Explain what causes latency in a networked application and which parts an engineer can actually control.",
+    "Describe how version control systems track changes, and why branching and merging are harder than they first appear."
+  ]
+}
