@@ -1,0 +1,297 @@
+{
+  "measurement": "local-verification-cycle",
+  "label": "",
+  "provenance": {
+    "timestamp_utc": "2026-09-21T22:54:22.919449+00:00",
+    "git": {
+      "commit": "8e6d88a2fd18b4d03756b193de74cb992c828df8",
+      "branch": "main",
+      "tree_dirty": false,
+      "dirty_paths": []
+    },
+    "gpu": {
+      "present": false,
+      "name": null,
+      "memory_total": null,
+      "driver": null
+    },
+    "host": {
+      "python": "3.14.3",
+      "platform": "macOS-26.2-arm64-arm-64bit-Mach-O",
+      "machine": "arm64"
+    },
+    "note": "Measures the local, GPU-free verification cycle only. The GPU-box side of the comparison is NOT measured here."
+  },
+  "workload": {
+    "repeats": 3,
+    "steps": [
+      "ruff check",
+      "ruff format --check",
+      "eval set validate",
+      "mypy (api, strict)",
+      "pytest (api)",
+      "pytest (ui)",
+      "compose config validate",
+      "compose config validate (local overlay, GPU-free path)"
+    ],
+    "gpu_required": false,
+    "ci_jobs_covered": [
+      "compose-validate",
+      "lint",
+      "types-and-tests",
+      "ui-tests"
+    ]
+  },
+  "summary": {
+    "cycle_wall_s_min": 4.579090875107795,
+    "cycle_wall_s_max": 19.13594379206188,
+    "cycle_wall_s_mean": 9.77400220837444,
+    "all_cycles_passed": true
+  },
+  "comparison": {
+    "gpu_box_cold_start_s": 196,
+    "gpu_box_cold_start_display": "3 min 16 s",
+    "gpu_box_cold_start_source": "README.md:44",
+    "gpu_box_cold_start_status": "UNMEASURED-HERE",
+    "honest_framing": "Not a like-for-like comparison. The local cycle runs gates the box does not; the box exercises a real model the local tests mock. The only defensible reading is the iteration floor: locally, feedback costs the measured cycle time and no GPU; on the box, nothing can be verified until vLLM is serving, observed once at 3 min 16 s. There is NO historical GPU-CI baseline in this repo \u2014 all five CI jobs have always run on ubuntu-latest \u2014 so no 'CI got faster' claim is available."
+  },
+  "cycles": [
+    {
+      "cycle": 0,
+      "wall_s": 19.13594379206188,
+      "all_passed": true,
+      "steps": [
+        {
+          "name": "ruff check",
+          "ci_job": "lint",
+          "cmd": "uvx ruff@0.14.2 check .",
+          "cwd": ".",
+          "returncode": 0,
+          "elapsed_s": 0.38278041686862707,
+          "last_line": "All checks passed!"
+        },
+        {
+          "name": "ruff format --check",
+          "ci_job": "lint",
+          "cmd": "uvx ruff@0.14.2 format --check .",
+          "cwd": ".",
+          "returncode": 0,
+          "elapsed_s": 0.07302916701883078,
+          "last_line": "30 files already formatted"
+        },
+        {
+          "name": "eval set validate",
+          "ci_job": "lint",
+          "cmd": "python3 pipeline/eval/validate.py pipeline/eval/worldcup-v1.jsonl",
+          "cwd": ".",
+          "returncode": 0,
+          "elapsed_s": 0.0712012080475688,
+          "last_line": "pipeline/eval/worldcup-v1.jsonl: 52 items, ok"
+        },
+        {
+          "name": "mypy (api, strict)",
+          "ci_job": "types-and-tests",
+          "cmd": "uv run mypy app",
+          "cwd": "api",
+          "returncode": 0,
+          "elapsed_s": 2.0377262919209898,
+          "last_line": "\u001b[1m\u001b[32mSuccess: no issues found in 10 source files\u001b(B\u001b[m"
+        },
+        {
+          "name": "pytest (api)",
+          "ci_job": "types-and-tests",
+          "cmd": "uv run pytest -q",
+          "cwd": "api",
+          "returncode": 0,
+          "elapsed_s": 9.26478995801881,
+          "last_line": "\u001b[33m\u001b[32m77 passed\u001b[0m, \u001b[33m\u001b[1m1 warning\u001b[0m\u001b[33m in 2.48s\u001b[0m\u001b[0m"
+        },
+        {
+          "name": "pytest (ui)",
+          "ci_job": "ui-tests",
+          "cmd": "uv run pytest -q",
+          "cwd": "ui",
+          "returncode": 0,
+          "elapsed_s": 7.0229571249801666,
+          "last_line": "\u001b[32m\u001b[32m\u001b[1m7 passed\u001b[0m\u001b[32m in 5.15s\u001b[0m\u001b[0m"
+        },
+        {
+          "name": "compose config validate",
+          "ci_job": "compose-validate",
+          "cmd": "docker compose config --quiet",
+          "cwd": ".",
+          "returncode": 0,
+          "elapsed_s": 0.20850204187445343,
+          "last_line": ""
+        },
+        {
+          "name": "compose config validate (local overlay, GPU-free path)",
+          "ci_job": "compose-validate",
+          "cmd": "docker compose -f docker-compose.yml -f docker-compose.local.yml config --quiet",
+          "cwd": ".",
+          "returncode": 0,
+          "elapsed_s": 0.07454179204069078,
+          "last_line": ""
+        }
+      ]
+    },
+    {
+      "cycle": 1,
+      "wall_s": 5.606971957953647,
+      "all_passed": true,
+      "steps": [
+        {
+          "name": "ruff check",
+          "ci_job": "lint",
+          "cmd": "uvx ruff@0.14.2 check .",
+          "cwd": ".",
+          "returncode": 0,
+          "elapsed_s": 0.08351254113949835,
+          "last_line": "All checks passed!"
+        },
+        {
+          "name": "ruff format --check",
+          "ci_job": "lint",
+          "cmd": "uvx ruff@0.14.2 format --check .",
+          "cwd": ".",
+          "returncode": 0,
+          "elapsed_s": 0.0497215420473367,
+          "last_line": "30 files already formatted"
+        },
+        {
+          "name": "eval set validate",
+          "ci_job": "lint",
+          "cmd": "python3 pipeline/eval/validate.py pipeline/eval/worldcup-v1.jsonl",
+          "cwd": ".",
+          "returncode": 0,
+          "elapsed_s": 0.06221037497743964,
+          "last_line": "pipeline/eval/worldcup-v1.jsonl: 52 items, ok"
+        },
+        {
+          "name": "mypy (api, strict)",
+          "ci_job": "types-and-tests",
+          "cmd": "uv run mypy app",
+          "cwd": "api",
+          "returncode": 0,
+          "elapsed_s": 0.5203391250688583,
+          "last_line": "\u001b[1m\u001b[32mSuccess: no issues found in 10 source files\u001b(B\u001b[m"
+        },
+        {
+          "name": "pytest (api)",
+          "ci_job": "types-and-tests",
+          "cmd": "uv run pytest -q",
+          "cwd": "api",
+          "returncode": 0,
+          "elapsed_s": 3.7766627920791507,
+          "last_line": "\u001b[33m\u001b[32m77 passed\u001b[0m, \u001b[33m\u001b[1m1 warning\u001b[0m\u001b[33m in 2.36s\u001b[0m\u001b[0m"
+        },
+        {
+          "name": "pytest (ui)",
+          "ci_job": "ui-tests",
+          "cmd": "uv run pytest -q",
+          "cwd": "ui",
+          "returncode": 0,
+          "elapsed_s": 0.9818194578401744,
+          "last_line": "\u001b[32m\u001b[32m\u001b[1m7 passed\u001b[0m\u001b[32m in 0.57s\u001b[0m\u001b[0m"
+        },
+        {
+          "name": "compose config validate",
+          "ci_job": "compose-validate",
+          "cmd": "docker compose config --quiet",
+          "cwd": ".",
+          "returncode": 0,
+          "elapsed_s": 0.06307916692458093,
+          "last_line": ""
+        },
+        {
+          "name": "compose config validate (local overlay, GPU-free path)",
+          "ci_job": "compose-validate",
+          "cmd": "docker compose -f docker-compose.yml -f docker-compose.local.yml config --quiet",
+          "cwd": ".",
+          "returncode": 0,
+          "elapsed_s": 0.06931391707621515,
+          "last_line": ""
+        }
+      ]
+    },
+    {
+      "cycle": 2,
+      "wall_s": 4.579090875107795,
+      "all_passed": true,
+      "steps": [
+        {
+          "name": "ruff check",
+          "ci_job": "lint",
+          "cmd": "uvx ruff@0.14.2 check .",
+          "cwd": ".",
+          "returncode": 0,
+          "elapsed_s": 0.050311916042119265,
+          "last_line": "All checks passed!"
+        },
+        {
+          "name": "ruff format --check",
+          "ci_job": "lint",
+          "cmd": "uvx ruff@0.14.2 format --check .",
+          "cwd": ".",
+          "returncode": 0,
+          "elapsed_s": 0.047370542073622346,
+          "last_line": "30 files already formatted"
+        },
+        {
+          "name": "eval set validate",
+          "ci_job": "lint",
+          "cmd": "python3 pipeline/eval/validate.py pipeline/eval/worldcup-v1.jsonl",
+          "cwd": ".",
+          "returncode": 0,
+          "elapsed_s": 0.05816237488761544,
+          "last_line": "pipeline/eval/worldcup-v1.jsonl: 52 items, ok"
+        },
+        {
+          "name": "mypy (api, strict)",
+          "ci_job": "types-and-tests",
+          "cmd": "uv run mypy app",
+          "cwd": "api",
+          "returncode": 0,
+          "elapsed_s": 0.41920216707512736,
+          "last_line": "\u001b[1m\u001b[32mSuccess: no issues found in 10 source files\u001b(B\u001b[m"
+        },
+        {
+          "name": "pytest (api)",
+          "ci_job": "types-and-tests",
+          "cmd": "uv run pytest -q",
+          "cwd": "api",
+          "returncode": 0,
+          "elapsed_s": 3.20381037495099,
+          "last_line": "\u001b[33m\u001b[32m77 passed\u001b[0m, \u001b[33m\u001b[1m1 warning\u001b[0m\u001b[33m in 2.30s\u001b[0m\u001b[0m"
+        },
+        {
+          "name": "pytest (ui)",
+          "ci_job": "ui-tests",
+          "cmd": "uv run pytest -q",
+          "cwd": "ui",
+          "returncode": 0,
+          "elapsed_s": 0.6587003748863935,
+          "last_line": "\u001b[32m\u001b[32m\u001b[1m7 passed\u001b[0m\u001b[32m in 0.35s\u001b[0m\u001b[0m"
+        },
+        {
+          "name": "compose config validate",
+          "ci_job": "compose-validate",
+          "cmd": "docker compose config --quiet",
+          "cwd": ".",
+          "returncode": 0,
+          "elapsed_s": 0.0740087500307709,
+          "last_line": ""
+        },
+        {
+          "name": "compose config validate (local overlay, GPU-free path)",
+          "ci_job": "compose-validate",
+          "cmd": "docker compose -f docker-compose.yml -f docker-compose.local.yml config --quiet",
+          "cwd": ".",
+          "returncode": 0,
+          "elapsed_s": 0.06724008289165795,
+          "last_line": ""
+        }
+      ]
+    }
+  ]
+}
