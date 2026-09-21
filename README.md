@@ -403,6 +403,7 @@ read token, and put it in `.env` as `HF_TOKEN`. vLLM pulls and caches the weight
 
 - [Architecture](docs/architecture.md), request flow, failure behaviour, security boundary
 - [Trace store](docs/trace-store.md), what each request records, how it fails, how to query it
+- [Measurements](docs/measurements.md), every number with its source, what is spec vs contribution, what to measure next
 - [Pipeline plan](docs/pipeline-plan.md), the fine-tuning loop as sprints and stories
 - [Spike findings](docs/spikes/), the three measurements the plan rests on
 - [GPU box runbook](docs/gpu-box-runbook.md), provision, verify, record, tear down
