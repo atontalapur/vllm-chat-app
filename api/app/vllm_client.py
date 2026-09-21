@@ -18,7 +18,6 @@ user like a model that is simply slow, with no error and no recovery.
       |<---- data: [DONE] ---------|<---- data: [DONE] ---------|
 """
 
-import json
 from collections.abc import AsyncIterator
 
 import httpx
@@ -26,6 +25,7 @@ import httpx
 from app.config import settings
 from app.logging import logger
 from app.schemas import ChatRequest
+from app.tracing import StreamAccumulator, parse_data_line
 
 # Sent to the client when the upstream fails after streaming has begun.
 # Formatted as an SSE event so a streaming client sees the failure on the
@@ -42,13 +42,21 @@ class UpstreamError(Exception):
 
 
 def _build_payload(req: ChatRequest) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "model": settings.model_id,
         "messages": [m.model_dump() for m in req.messages],
         "max_tokens": req.max_tokens,
         "temperature": req.temperature,
         "stream": True,
     }
+    if settings.capture_logprobs:
+        # top_logprobs must be sent explicitly. vLLM's chat path only builds
+        # logprobs when `request.logprobs and request.top_logprobs is not None`,
+        # so `logprobs: true` alone yields chunks with "logprobs": null. 0 means
+        # the chosen token only, which is all the confidence proxy needs.
+        payload["logprobs"] = True
+        payload["top_logprobs"] = 0
+    return payload
 
 
 def _extract_upstream_id(line: str) -> str | None:
@@ -58,11 +66,8 @@ def _extract_upstream_id(line: str) -> str | None:
     correlated: the upstream image does not echo inbound headers, so there is
     no trace header to propagate.
     """
-    if not line.startswith("data: ") or line.endswith("[DONE]"):
-        return None
-    try:
-        chunk = json.loads(line[len("data: ") :])
-    except json.JSONDecodeError:
+    chunk = parse_data_line(line)
+    if chunk is None:
         return None
     upstream_id = chunk.get("id")
     return upstream_id if isinstance(upstream_id, str) else None
@@ -79,13 +84,24 @@ def _timeout() -> httpx.Timeout:
     )
 
 
-async def stream_chat(req: ChatRequest, request_id: str) -> AsyncIterator[str]:
+async def stream_chat(
+    req: ChatRequest,
+    request_id: str,
+    accumulator: StreamAccumulator | None = None,
+) -> AsyncIterator[str]:
     """Yield SSE lines from the upstream server.
 
     Raises UpstreamError if the connection or response status fails before any
     bytes are streamed, so the caller can still turn it into a 502. After the
     first byte the status is already committed, so a mid-stream failure is
     surfaced as an SSE error event instead.
+
+    An `accumulator` is fed a copy of every line for the trace store. It is fed
+    *after* each yield, so the caller has the chunk in hand before any trace
+    work starts — resuming a generator runs the code after `yield` only when
+    the consumer asks for the next line, which is time otherwise spent waiting
+    on the upstream socket. The accumulator is read by the caller once this
+    generator is exhausted; nothing here writes to the store.
     """
     url = f"{settings.vllm_base_url.rstrip('/')}/chat/completions"
     upstream_logged = False
@@ -120,6 +136,12 @@ async def stream_chat(req: ChatRequest, request_id: str) -> AsyncIterator[str]:
 
                 chunks += 1
                 yield f"{line}\n\n"
+
+                # After the yield on purpose — see the docstring. observe()
+                # never raises, so a malformed chunk costs the trace, not the
+                # user's response.
+                if accumulator is not None:
+                    accumulator.observe(line)
 
             if chunks == 0:
                 # A 200 that streams nothing is still a failed generation.

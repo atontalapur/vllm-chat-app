@@ -33,6 +33,13 @@ jobs:
       - name: Validate eval set
         run: python3 pipeline/eval/validate.py pipeline/eval/worldcup-v1.jsonl
 
+      # Grafana silently provisions a dashboard with broken JSON as "no
+      # dashboard at all", which on a demo box is discovered at the worst
+      # possible moment. The metric names the panels query are checked
+      # against the exported ones in api/tests/test_metrics.py.
+      - name: Validate Grafana dashboard JSON
+        run: python3 -c "import json; json.load(open('metrics/grafana/dashboards/vllm.json'))"
+
   types-and-tests:
     runs-on: ubuntu-latest
     defaults:
@@ -106,6 +113,7 @@ jobs:
             echo "API_KEY=ci-validation-only"
             echo "GF_SECURITY_ADMIN_PASSWORD=ci-validation-only"
             echo "POSTGRES_PASSWORD=ci-validation-only"
+            echo "API_DB_PASSWORD=ci-validation-only"
           } >> .env
           docker compose config --quiet
           docker compose -f docker-compose.yml -f docker-compose.local.yml config --quiet
@@ -120,6 +128,20 @@ jobs:
           q() { docker compose run --rm --entrypoint psql db-migrate -tAc "$1"; }
           docker compose up --quiet-pull --exit-code-from db-migrate db-migrate
           q "SELECT 1 FROM information_schema.columns WHERE table_name = 'traces' AND column_name = 'request_id'" | grep -q 1
+          # The api's role must exist and hold INSERT and nothing else. A
+          # migration that quietly granted more would hand the serving path
+          # the ability to rewrite judge scores or drop the training set.
+          q "SELECT 1 FROM pg_roles WHERE rolname = 'api_writer'" | grep -q 1
+          test "$(q "SELECT string_agg(DISTINCT privilege_type, ',' ORDER BY privilege_type)
+                     FROM information_schema.table_privileges
+                     WHERE grantee = 'api_writer' AND table_name = 'traces'")" = "INSERT"
+          # And it must be able to actually connect and insert with it.
+          docker compose run --rm --entrypoint psql -e PGPASSWORD=ci-validation-only db-migrate \
+            "postgresql://api_writer@postgres:5432/traces" \
+            -c "INSERT INTO traces (request_id, model, messages, response) VALUES ('ci-1', 'm', '[]'::jsonb, 'r')"
+          # Reading back is a privilege it must NOT have.
+          ! docker compose run --rm --entrypoint psql -e PGPASSWORD=ci-validation-only db-migrate \
+            "postgresql://api_writer@postgres:5432/traces" -c "SELECT * FROM traces"
           # Second run must be a no-op: exits 0 and records nothing new.
           before=$(q 'SELECT count(*) FROM schema_migrations')
           docker compose up --exit-code-from db-migrate db-migrate
@@ -127,11 +149,11 @@ jobs:
           test "$before" = "$after"
           # A broken file must exit non-zero, roll back its DDL, and record nothing.
           mkdir -p bad && cp pipeline/db/migrations/*.sql bad/
-          echo 'CREATE TABLE half (x int); SELECT 1/0;' > bad/0002_bad.sql
+          echo 'CREATE TABLE half (x int); SELECT 1/0;' > bad/0003_bad.sql
           ! docker compose run --rm -e MIGRATIONS_DIR=/bad -v "$PWD/bad:/bad:ro" db-migrate
           test "$(q 'SELECT count(*) FROM schema_migrations')" = "$after"
           test -z "$(q "SELECT to_regclass('half')")"
           # An edited applied file must be refused: applied migrations are immutable.
-          rm bad/0002_bad.sql && echo '-- edited after apply' >> bad/0001_traces.sql
+          rm bad/0003_bad.sql && echo '-- edited after apply' >> bad/0001_traces.sql
           ! docker compose run --rm -e MIGRATIONS_DIR=/bad -v "$PWD/bad:/bad:ro" db-migrate
           docker compose down -v

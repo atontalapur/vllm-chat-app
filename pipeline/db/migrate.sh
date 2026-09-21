@@ -20,12 +20,21 @@
 #   later run refuses to start if a recorded file's content changed, so a
 #   fix goes in a new file. Reverting is manual: undo the DDL by hand, then
 #   DELETE FROM schema_migrations WHERE filename = '<file>'.
+# - Migrations may reference values the runner passes as psql variables. Only
+#   one exists so far: :'api_db_password' from API_DB_PASSWORD, used by
+#   0002 to create the api's role. Substitution happens outside string
+#   literals and inside quoted ones like :'x', but NOT inside dollar-quoted
+#   bodies ($$...$$), so a migration needing a variable cannot use a DO block.
 # - No lock between runners. Two overlapping `compose up` calls can both
 #   pass the applied check; the loser fails on "already exists" and a
 #   re-run fixes it. Not worth a single-session rewrite for one operator.
 set -eu
 
 : "${PGHOST:?}" "${PGUSER:?}" "${PGPASSWORD:?}" "${PGDATABASE:?}"
+# Required even when 0002 is already applied: the runner cannot know which
+# files it is about to run until it has queried, and failing here is far
+# cheaper to diagnose than psql reporting an unbound variable mid-migration.
+: "${API_DB_PASSWORD:?set API_DB_PASSWORD in .env - generate one with openssl rand -hex 16}"
 MIGRATIONS_DIR="${MIGRATIONS_DIR:-/migrations}"
 
 # Bounded: an unreachable database must fail the service, not hang compose
@@ -82,7 +91,8 @@ for path in "$MIGRATIONS_DIR"/*.sql; do
     printf '%s\n' "$sql"
     echo "INSERT INTO schema_migrations (filename, checksum) VALUES (:'name', :'sum');"
     echo "COMMIT;"
-  } | psql -v ON_ERROR_STOP=1 -v name="$name" -v sum="$sum" -q
+  } | psql -v ON_ERROR_STOP=1 -v name="$name" -v sum="$sum" \
+        -v api_db_password="$API_DB_PASSWORD" -q
   applied=$((applied + 1))
 done
 

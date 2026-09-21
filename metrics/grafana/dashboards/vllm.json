@@ -4,7 +4,7 @@
   "description": "Serving-layer behaviour: queueing, latency, throughput, KV cache.",
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "5s",
   "time": {
     "from": "now-15m",
@@ -278,6 +278,125 @@
         {
           "expr": "sum by (status) (rate(http_requests_total{handler!=\"/metrics\"}[1m]))",
           "legendFormat": "{{status}}",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Trace capture: written vs lost",
+      "description": "Signal capture for the fine-tuning loop. 'written' should track the chat request rate on the panel above; the two loss lines should sit flat at zero. A gap between them is training data being silently lost, which is the whole reason this panel exists \u2014 a request that traces nothing is still a healthy 200. 'failed' means the store answered badly (unhealthy); 'dropped' means it was never reached (unreachable, or too slow to keep up).",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 23
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(traces_written_total[1m])",
+          "legendFormat": "written",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "sum by (reason) (rate(trace_write_failures_total[1m]))",
+          "legendFormat": "failed: {{reason}}",
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        },
+        {
+          "expr": "sum by (reason) (rate(trace_drops_total[1m]))",
+          "legendFormat": "dropped: {{reason}}",
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Trace writer queue depth",
+      "description": "Traces waiting to be written. This is the early warning for the panel beside it: the queue is normally at or near zero, and a depth that climbs and stays up means the writer is falling behind and drops are coming once it reaches TRACE_QUEUE_SIZE (default 500). A sawtooth during a load burst is expected.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 23
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "expr": "trace_queue_depth",
+          "legendFormat": "queued",
           "refId": "A",
           "datasource": {
             "type": "prometheus",

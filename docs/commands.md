@@ -131,6 +131,9 @@ cp .env.example .env
 
 sed -i "s|^API_KEY=.*|API_KEY=$(openssl rand -hex 32)|" .env
 sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 16)|" .env
+# Password for the api's INSERT-only trace-writing role. db-migrate refuses to
+# run without it, which keeps api down, so generate it before the first start.
+sed -i "s|^API_DB_PASSWORD=.*|API_DB_PASSWORD=$(openssl rand -hex 16)|" .env
 sed -i "s|^GF_SECURITY_ADMIN_PASSWORD=.*|GF_SECURITY_ADMIN_PASSWORD=$(openssl rand -hex 16)|" .env
 
 grep -E '^(API_KEY|GF_SECURITY_ADMIN_PASSWORD)=' .env      # save the Grafana password
@@ -213,6 +216,42 @@ nvidia-smi
 watch -n 1 nvidia-smi
 ```
 
+### Traces
+
+Every completed chat writes a row. `postgres` publishes no port, so query it from inside
+the network. The api's own role cannot read — query as the owner.
+
+```bash
+# Is capture actually working? These two should move together.
+docker compose exec postgres psql -U traces -d traces -tAc "SELECT count(*) FROM traces"
+docker compose exec api python3 -c "import urllib.request;print(urllib.request.urlopen('http://localhost:8080/metrics').read().decode())" \
+  | grep -E '^(traces_written_total|trace_write_failures_total|trace_drops_total|trace_queue_depth)'
+
+# The last few, with the confidence proxy.
+docker compose exec postgres psql -U traces -d traces -c \
+  "SELECT request_id, created_at, n_tokens, round(mean_logprob::numeric,3) AS mean_lp,
+          finish_reason, left(response, 50) AS preview
+     FROM traces ORDER BY created_at DESC LIMIT 10"
+
+# Did the api connect to the store at boot?
+docker compose logs api | grep "trace store"
+```
+
+Expected on a healthy stack: `trace store ready` in the log, `traces_written_total`
+climbing with traffic, both loss counters flat, `trace_queue_depth` at or near zero.
+
+`traces_written_total` at zero with `trace_drops_total{reason="disabled"}` climbing means
+the api never reached the store. Check `TRACE_DB_URL` and `API_DB_PASSWORD` in `.env`,
+and that `db-migrate` applied `0002_api_writer_role.sql`:
+
+```bash
+docker compose exec postgres psql -U traces -d traces -tAc \
+  "SELECT filename FROM schema_migrations ORDER BY filename"
+```
+
+Full reference, including what each column means and how to read the logprob numbers:
+[docs/trace-store.md](trace-store.md).
+
 ---
 
 ## 5. The load test
@@ -263,6 +302,9 @@ If no queue forms, raise `--concurrency` or lower `VLLM_MAX_NUM_SEQS` in `.env` 
 | vLLM exits with a KV-cache error | context window too large for the card | lower `VLLM_MAX_MODEL_LEN` in `.env`, restart |
 | vLLM OOMs at startup | other processes hold VRAM | lower `VLLM_GPU_MEMORY_UTILIZATION` to `0.85` |
 | Dashboard panels empty | no traffic in the last minute, or wrong time range | send a chat message; set range to Last 15 minutes |
+| Trace panels flat at zero | api not connected to the store | `docker compose logs api \| grep "trace store"` |
+| `permission denied for table traces` | querying as `api_writer`, which may only INSERT | query as `-U traces`, the owner |
+| db-migrate exits 1 on a fresh box | `API_DB_PASSWORD` unset in `.env` | `openssl rand -hex 16`, add it, `docker compose up -d` |
 | UI shows a 502 banner | vLLM down or still loading | `docker compose ps`, then `logs -f vllm` |
 | Chat page dead in browser | tunnel tab closed | reopen the `-L` ssh command |
 

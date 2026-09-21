@@ -6,16 +6,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Dependencies before source: source changes are frequent, dependency changes
-# are not, so this layer stays cached across most rebuilds.
-COPY pyproject.toml ./
-RUN pip install --no-cache-dir \
-      "fastapi>=0.115" \
-      "uvicorn[standard]>=0.32" \
-      "httpx>=0.28" \
-      "pydantic>=2.9" \
-      "pydantic-settings>=2.6" \
-      "prometheus-fastapi-instrumentator>=7.0"
+# Dependencies come from pyproject.toml + uv.lock, never from a list repeated
+# here. A hand-copied list is a second source of truth that drifts silently:
+# `uv add psycopg` updated the project and the tests passed, while the image
+# kept building without it and only failed at runtime on the box.
+#
+# --frozen: fail if the lock is stale rather than silently resolving something
+# different from what CI tested. --no-dev: no pytest or mypy in the runtime
+# image. --no-install-project: the app is COPYed below, not pip-installed, so
+# a source change does not invalidate this layer.
+COPY --from=ghcr.io/astral-sh/uv:0.9.26 /uv /usr/local/bin/uv
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+# uv builds a venv; put it first so `uvicorn` and `python` resolve to it.
+ENV PATH="/app/.venv/bin:$PATH"
 
 COPY app ./app
 
