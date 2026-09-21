@@ -62,6 +62,12 @@ cp .env.example .env
 #                               database; db-migrate then fails auth and api stays down.
 #                               To rotate: docker compose exec postgres psql -U traces -c
 #                               "ALTER USER traces PASSWORD '<new>'" then update .env.
+#   API_DB_PASSWORD             openssl rand -hex 16
+#                               The api's INSERT-only role for the trace store, created
+#                               by migration 0002. db-migrate refuses to run without it
+#                               and api never starts. Keep it hex: it goes into a
+#                               connection URL, where a URL-special character would
+#                               need escaping.
 #   GF_SECURITY_ADMIN_PASSWORD  openssl rand -hex 16
 # Leave VLLM_BASE_URL and LOCAL_MODEL_ID commented out — those are for laptop dev.
 

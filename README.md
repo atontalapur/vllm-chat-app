@@ -25,7 +25,10 @@ vllm (OpenAI-compatible server)   PagedAttention, continuous batching
 GPU
    ^
    |  scrape /metrics every 15s
-metrics (Prometheus + Grafana)    queue depth, TTFT, tokens/sec, KV cache
+metrics (Prometheus + Grafana)    queue depth, TTFT, tokens/sec, KV cache, trace volume
+
+postgres (trace store)            one row per request, written off the request path;
+                                  the raw material for the fine-tuning loop
 ```
 
 ## Status
@@ -51,6 +54,21 @@ endpoint. That check was the one thing in this project that could not be done wi
 GPU, so it was isolated down to a single command instead of being discovered panel by
 panel while a rented box billed by the minute.
 
+**Now being extended into a closed-loop fine-tuning pipeline** — capture what the served
+model gets wrong, curate it, train an adapter, and promote it only if a held-out eval
+says it is better. The plan is in [docs/pipeline-plan.md](docs/pipeline-plan.md).
+
+| Sprint | Scope | State |
+|---|---|---|
+| 0 | Spikes: runtime LoRA, GPU co-residency, logprob shape | measured on the 3090 |
+| 1 | Signal capture: trace store, logprob capture, async writer, metrics | complete |
+| 2 | Held-out eval harness | eval set authored; judge and runner next |
+| 3-6 | Curation, training, eval gate, loop operation | planned |
+
+Sprint 0 changed the plan's shape rather than confirming it: a 7B QLoRA train needs
+13.2GB and a shrunk vLLM still holds 16.7GB, so the two cannot co-reside on a 24GB card.
+The loop is stop-train-restart, with a ~60 s serving gap charged to each cycle.
+
 Remaining: the demo recording.
 
 ## Quick start on a GPU box
@@ -75,9 +93,10 @@ git clone https://github.com/atontalapur/vllm-chat-app.git
 cd vllm-chat-app
 cp .env.example .env
 
-# API_KEY, POSTGRES_PASSWORD and GF_SECURITY_ADMIN_PASSWORD are required and ship empty on purpose
+# All four are required and ship empty on purpose
 sed -i "s|^API_KEY=.*|API_KEY=$(openssl rand -hex 32)|" .env
 sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 16)|" .env
+sed -i "s|^API_DB_PASSWORD=.*|API_DB_PASSWORD=$(openssl rand -hex 16)|" .env
 sed -i "s|^GF_SECURITY_ADMIN_PASSWORD=.*|GF_SECURITY_ADMIN_PASSWORD=$(openssl rand -hex 16)|" .env
 
 docker compose up -d --build
@@ -273,7 +292,7 @@ publishing it would be the same problem behind a nicer interface.
 `ui` and `grafana` bind to `127.0.0.1` only. Everything is reached over an SSH tunnel.
 
 `.env` is gitignored and never committed. `.env.example` ships with `API_KEY`,
-`POSTGRES_PASSWORD` and `GF_SECURITY_ADMIN_PASSWORD` empty, and compose uses `${VAR:?}` so an empty value stops
+`POSTGRES_PASSWORD`, `API_DB_PASSWORD` and `GF_SECURITY_ADMIN_PASSWORD` empty, and compose uses `${VAR:?}` so an empty value stops
 startup with a readable message instead of booting a stack with no password. That guard
 is also why CI supplies throwaway values for its compose validation job.
 
@@ -350,6 +369,10 @@ memory behaviour over hours, or recovery from a mid-flight GPU fault.
 Conversation history lives in browser session state, so it is lost on refresh and never
 shared across devices.
 
+Traces store whole conversations in plain text, with no redaction, no retention policy,
+and no deletion path. That is acceptable for a single-operator demo and is the first
+thing that would have to change for anything else.
+
 ## Cost
 
 The box bills by the minute, so shutdown is part of the procedure.
@@ -379,6 +402,9 @@ read token, and put it in `.env` as `HF_TOKEN`. vLLM pulls and caches the weight
 ## Documentation
 
 - [Architecture](docs/architecture.md), request flow, failure behaviour, security boundary
+- [Trace store](docs/trace-store.md), what each request records, how it fails, how to query it
+- [Pipeline plan](docs/pipeline-plan.md), the fine-tuning loop as sprints and stories
+- [Spike findings](docs/spikes/), the three measurements the plan rests on
 - [GPU box runbook](docs/gpu-box-runbook.md), provision, verify, record, tear down
 - [Command reference](docs/commands.md), every command, grouped by where you run it
 - [Published pages](docs/artifacts.md), hosted companions to the docs above

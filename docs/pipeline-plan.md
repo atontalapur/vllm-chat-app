@@ -62,17 +62,34 @@ the actual delta structure.
 
 ---
 
-## Sprint 1: signal capture
+## Sprint 1: signal capture — **delivered**
 
 **Goal:** every chat request leaves a durable trace that can be joined to the operational
 log, carrying a confidence proxy, without adding latency to the token path.
 
-| ID | Story | Pts |
-|---|---|---|
-| 1.1 | Trace store service and schema | 3 |
-| 1.2 | Capture response text and logprobs in the stream | 5 |
-| 1.3 | Async trace writer | 3 |
-| 1.4 | Trace metrics exported to Prometheus | 2 |
+| ID | Story | Pts | State |
+|---|---|---|---|
+| 1.1 | Trace store service and schema | 3 | done, CFT-11 |
+| 1.2 | Capture response text and logprobs in the stream | 5 | done, CFT-12 |
+| 1.3 | Async trace writer | 3 | done, CFT-13 |
+| 1.4 | Trace metrics exported to Prometheus | 2 | done, CFT-14 |
+
+Operator documentation: [docs/trace-store.md](trace-store.md).
+
+**What the sprint changed about the plan.** Three things that were not on the board:
+
+- The api image built its dependency list by hand, so adding a library to
+  `pyproject.toml` never reached the container and failed only at runtime. It now
+  installs from `pyproject.toml` + `uv.lock`. Any later story adding a dependency would
+  have hit the same wall.
+- An INSERT-only role cannot use `ON CONFLICT (col)`: naming a conflict target requires
+  SELECT on that column. The untargeted form is what the writer runs. Worth knowing
+  before S3-x writes back curation status under its own least-privilege role.
+- A connection pool opening against an unreachable host ignored its own timeout and took
+  5s. Bounded with libpq's `connect_timeout`, whose floor is 2s.
+
+None of the three were visible to a mocked test; all three came from running the real
+writer against a real Postgres. S4-x should budget for the same kind of gap.
 
 **1.1** As an operator, I want a durable store for request/response traces, so failures can
 be analysed after the fact.
