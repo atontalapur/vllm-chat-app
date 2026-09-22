@@ -85,3 +85,45 @@ and run `validate.py`.
 ```bash
 python3 pipeline/eval/validate.py pipeline/eval/worldcup-v1.jsonl
 ```
+
+## Scoring
+
+| File | What |
+|---|---|
+| `rubric-v1.md` | The scoring contract. Versioned, never edited in place: a change to the wording or the arithmetic makes old scores incomparable with new ones |
+| `judge.py` | Implements it. Standard library only, like everything in `pipeline/` |
+
+Two layers, both in [0, 1], averaged per item:
+
+- **string score**, computed in code with no model involved
+- **judge score**, from a model asked for a boolean per claim, never for a number
+
+The judge is the **base model, pinned by name**, even when grading an adapter's
+output. vLLM serves both at once (`--enable-lora`), so the ruler stays fixed
+while the thing being measured changes. A judge that followed the active model
+would make no two runs across the loop comparable.
+
+A tripped `must_not_claim` is a hard zero for that item, not a deduction. The
+set is built around traps, so a response that asserts the specific wrong thing
+an item was written to catch has failed it whatever else it got right.
+
+### Measuring the run-to-run tolerance
+
+The rubric records this as UNMEASURED, and Sprint 5's significance bar cannot
+be set until it has a number: a bar below the noise floor promotes adapters at
+random.
+
+`temperature: 0` plus a fixed `seed` plus the JSON schema removes format and
+sampling variance, but not batching variance — vLLM's numerics for a request
+depend on what else shares its batch. So the drift has to be measured rather
+than assumed:
+
+```bash
+# On the box, with the stack serving. Needs the S2-3 runner.
+python3 pipeline/eval/run.py --model "$MODEL_ID" --set pipeline/eval/worldcup-v1.jsonl --out run-a.json
+python3 pipeline/eval/run.py --model "$MODEL_ID" --set pipeline/eval/worldcup-v1.jsonl --out run-b.json
+# The set-mean difference between the two is the tolerance. Record it in rubric-v1.md.
+```
+
+Until the runner lands (S2-3) this cannot be run, which is why the rubric says
+UNMEASURED rather than quoting a plausible-looking figure.
