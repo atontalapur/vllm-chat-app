@@ -100,8 +100,8 @@ assumed**, and until it is measured on hardware it is UNMEASURED:
 
 Measure it with the method in `pipeline/eval/README.md` ("Measuring the
 run-to-run tolerance") and record the number here before any gate threshold is
-set against it. That method needs the S2-3 runner, which is why this is still
-blank.
+set against it. Nothing blocks the measurement now that the S2-3 runner
+exists; it needs a box and about twenty minutes.
 
 Sprint 5's significance bar has to clear this drift; a bar below the noise
 floor would promote adapters at random.
