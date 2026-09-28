@@ -64,6 +64,22 @@ jobs:
       - name: Test
         run: uv run pytest -q
 
+  # pipeline/ is standard-library only by design, so there is no venv to sync:
+  # the code has to run on the GPU box with no install step. uvx supplies
+  # pytest without adding a dependency to the thing under test.
+  pipeline-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      # The judge's upstream is stubbed, so the rubric's scoring contract is
+      # checked without a GPU or a served model.
+      - name: Test
+        run: uvx --with pytest --from pytest pytest pipeline/tests -q
+
   ui-tests:
     runs-on: ubuntu-latest
     defaults:

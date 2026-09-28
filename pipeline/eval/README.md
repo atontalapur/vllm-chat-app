@@ -85,3 +85,85 @@ and run `validate.py`.
 ```bash
 python3 pipeline/eval/validate.py pipeline/eval/worldcup-v1.jsonl
 ```
+
+## Scoring
+
+| File | What |
+|---|---|
+| `rubric-v1.md` | The scoring contract. Versioned, never edited in place: a change to the wording or the arithmetic makes old scores incomparable with new ones |
+| `judge.py` | Implements it. Standard library only, like everything in `pipeline/` |
+
+Two layers, both in [0, 1], averaged per item:
+
+- **string score**, computed in code with no model involved
+- **judge score**, from a model asked for a boolean per claim, never for a number
+
+The judge is the **base model, pinned by name**, even when grading an adapter's
+output. vLLM serves both at once (`--enable-lora`), so the ruler stays fixed
+while the thing being measured changes. A judge that followed the active model
+would make no two runs across the loop comparable.
+
+A tripped `must_not_claim` is a hard zero for that item, not a deduction. The
+set is built around traps, so a response that asserts the specific wrong thing
+an item was written to catch has failed it whatever else it got right.
+
+### Running an eval
+
+```bash
+# From the box, with the stack serving. Goes straight to vLLM: the api sets
+# the model from its own config, so an adapter cannot be named through it.
+python3 pipeline/eval/run.py \
+  --model Qwen/Qwen2.5-7B-Instruct \
+  --set pipeline/eval/worldcup-v1.jsonl \
+  --out baseline.json
+```
+
+Scoring a candidate adapter is the same command with a different `--model`,
+plus the judge pinned to the base:
+
+```bash
+python3 pipeline/eval/run.py \
+  --model my-candidate-adapter \
+  --judge-model Qwen/Qwen2.5-7B-Instruct \
+  --set pipeline/eval/worldcup-v1.jsonl \
+  --out candidate.json
+```
+
+Nothing in the runner branches on which of the two it is doing. A gate whose
+two sides run different code measures the code as much as the model.
+
+The output carries what a later comparison needs: the model, the judge model,
+the rubric version, the eval set's sha256, every workload parameter, the git
+commit, and per-item scores with the response that produced them.
+
+**An incomplete run emits no set score.** If any item fails, `set_score` is
+`null`, the exit code is 1, and the reason is recorded. A mean over 50 of 52
+items is not comparable to a mean over 52, and that difference disappears the
+moment it becomes one number in a table.
+
+### Measuring the run-to-run tolerance
+
+The rubric records this as UNMEASURED, and Sprint 5's significance bar cannot
+be set until it has a number: a bar below the noise floor promotes adapters at
+random.
+
+`temperature: 0` plus a fixed `seed` plus the JSON schema removes format and
+sampling variance, but not batching variance — vLLM's numerics for a request
+depend on what else shares its batch. So the drift has to be measured rather
+than assumed:
+
+```bash
+# On the box, with the stack serving. Two identical runs, nothing changed.
+python3 pipeline/eval/run.py --model "$MODEL_ID" --set pipeline/eval/worldcup-v1.jsonl --out run-a.json
+python3 pipeline/eval/run.py --model "$MODEL_ID" --set pipeline/eval/worldcup-v1.jsonl --out run-b.json
+
+python3 -c "
+import json
+a = json.load(open('run-a.json'))['summary']['set_score']
+b = json.load(open('run-b.json'))['summary']['set_score']
+print(f'set means: {a:.4f} vs {b:.4f}  drift: {abs(a-b):.4f}')"
+```
+
+Record the drift in `rubric-v1.md`. Keep `--concurrency` at its default of 1
+for this: concurrent requests share a vLLM batch and batching is itself a
+source of drift, so measuring with concurrency on measures both at once.
