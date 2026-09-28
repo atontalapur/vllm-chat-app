@@ -22,7 +22,7 @@ migrated. Inventing one would be fabrication.
 What can be said honestly is a *floor comparison*, and only if it is stated
 precisely: verifying a change locally costs the number this script measures,
 while the same change verified on the GPU box cannot begin until vLLM is
-serving, which was measured once at 3 min 16 s cold start (README.md:44). Those
+serving, which was measured once at 3 min 16 s cold start (README.md:43). Those
 are not the same operation — the local cycle runs tests the box does not, and
 the box exercises a real model the tests mock. The defensible claim is about
 the *iteration floor*: the minimum wait before feedback. Any bullet built on
@@ -207,7 +207,7 @@ def main() -> int:
         "comparison": {
             "gpu_box_cold_start_s": 196,
             "gpu_box_cold_start_display": "3 min 16 s",
-            "gpu_box_cold_start_source": "README.md:44",
+            "gpu_box_cold_start_source": "README.md:43",
             "gpu_box_cold_start_status": "UNMEASURED-HERE",
             "honest_framing": (
                 "Not a like-for-like comparison. The local cycle runs gates the box does "

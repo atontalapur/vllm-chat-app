@@ -91,10 +91,17 @@ dropped.
 
 ### 2. Mac — get bench/ onto the box
 
-`bench/` is not committed yet, so copy it directly:
+`bench/` is on main, so a fresh box gets it with the clone. On a box cloned
+before it landed, pull:
 
 ```bash
 export BOX=root@<ip> BOXPORT=<port>     # from the Vast instance card
+ssh -p $BOXPORT $BOX 'cd /root/vllm-chat-app && git pull'
+```
+
+To test uncommitted local changes to a script, copy it over instead:
+
+```bash
 scp -P $BOXPORT -r bench $BOX:/root/vllm-chat-app/
 ```
 
