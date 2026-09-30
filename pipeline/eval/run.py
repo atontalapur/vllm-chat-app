@@ -80,7 +80,16 @@ def load_set(path: Path) -> list[dict[str, Any]]:
     return items
 
 
-def git_commit() -> str | None:
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def git_commit(repo: Path = REPO_ROOT) -> str | None:
+    """The commit the run was scored at, which ties the number to the code.
+
+    Falls back to reading `.git` directly: on the box the eval runs in the api
+    image, which has no git binary, and a baseline with no commit cannot be
+    traced back to the rubric and runner that produced it.
+    """
     try:
         out = subprocess.run(  # noqa: S603 - fixed argv, no shell
             # Resolved from PATH on purpose: this runs on whatever box the
@@ -89,11 +98,42 @@ def git_commit() -> str | None:
             capture_output=True,
             text=True,
             check=False,
-            cwd=Path(__file__).resolve().parents[2],
+            cwd=repo,
         )
     except OSError:
+        return read_head(repo)
+    return out.stdout.strip() or read_head(repo)
+
+
+def read_head(repo: Path) -> str | None:
+    """Resolve HEAD from the files under `.git`, without the git binary."""
+    git_dir = repo / ".git"
+    if git_dir.is_file():  # a worktree: `.git` points at the real directory
+        git_dir = (repo / git_dir.read_text().split(":", 1)[1].strip()).resolve()
+    try:
+        head = (git_dir / "HEAD").read_text().strip()
+    except OSError:
         return None
-    return out.stdout.strip() or None
+    if not head.startswith("ref:"):
+        return head or None  # detached HEAD holds the sha itself
+
+    ref = head.split(":", 1)[1].strip()
+    # A worktree keeps its own HEAD but shares refs with the main checkout.
+    common = git_dir / "commondir"
+    ref_root = (git_dir / common.read_text().strip()).resolve() if common.is_file() else git_dir
+    try:
+        return (ref_root / ref).read_text().strip()
+    except OSError:
+        pass
+    try:
+        packed = (ref_root / "packed-refs").read_text()
+    except OSError:
+        return None
+    for line in packed.splitlines():
+        sha, _, name = line.partition(" ")
+        if name == ref:
+            return sha
+    return None
 
 
 def ask_model(

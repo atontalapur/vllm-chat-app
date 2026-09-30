@@ -294,3 +294,66 @@ def test_rejects_zero_concurrency(tmp_path: Path) -> None:
                 "0",
             ]
         )
+
+
+# --- commit provenance without a git binary ----------------------------------
+
+SHA = "a" * 40
+
+
+def fake_repo(tmp_path: Path, head: str = "ref: refs/heads/main\n") -> Path:
+    git = tmp_path / ".git"
+    (git / "refs" / "heads").mkdir(parents=True)
+    (git / "HEAD").write_text(head)
+    return tmp_path
+
+
+def test_commit_is_read_from_the_files_when_git_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The api image on the box has no git. A baseline with no commit cannot be
+    traced to the rubric and runner that produced it."""
+    repo = fake_repo(tmp_path)
+    (repo / ".git" / "refs" / "heads" / "main").write_text(SHA + "\n")
+
+    def no_git(*_: Any, **__: Any) -> None:
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(runner.subprocess, "run", no_git)
+
+    assert runner.git_commit(repo) == SHA
+
+
+def test_read_head_finds_a_packed_ref(tmp_path: Path) -> None:
+    repo = fake_repo(tmp_path)
+    (repo / ".git" / "packed-refs").write_text(
+        f"# pack-refs with: peeled fully-peeled sorted\n{SHA} refs/heads/main\n"
+    )
+
+    assert runner.read_head(repo) == SHA
+
+
+def test_read_head_returns_a_detached_sha(tmp_path: Path) -> None:
+    assert runner.read_head(fake_repo(tmp_path, head=SHA + "\n")) == SHA
+
+
+def test_read_head_follows_a_worktree_to_the_shared_refs(tmp_path: Path) -> None:
+    main = fake_repo(tmp_path / "main")
+    (main / ".git" / "refs" / "heads" / "feat").write_text(SHA + "\n")
+    wt_git = main / ".git" / "worktrees" / "wt"
+    wt_git.mkdir(parents=True)
+    (wt_git / "HEAD").write_text("ref: refs/heads/feat\n")
+    (wt_git / "commondir").write_text("../..\n")
+    worktree = tmp_path / "wt"
+    worktree.mkdir()
+    (worktree / ".git").write_text(f"gitdir: {wt_git}\n")
+
+    assert runner.read_head(worktree) == SHA
+
+
+def test_read_head_is_none_outside_a_repo(tmp_path: Path) -> None:
+    assert runner.read_head(tmp_path) is None
+
+
+def test_read_head_matches_git_in_this_checkout() -> None:
+    assert runner.read_head(runner.REPO_ROOT) == runner.git_commit()
