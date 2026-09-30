@@ -92,6 +92,8 @@ python3 pipeline/eval/validate.py pipeline/eval/worldcup-v1.jsonl
 |---|---|
 | `rubric-v1.md` | The scoring contract. Versioned, never edited in place: a change to the wording or the arithmetic makes old scores incomparable with new ones |
 | `judge.py` | Implements it. Standard library only, like everything in `pipeline/` |
+| `run.py` | Scores any served model against a set |
+| `drift.py` | Compares two runs of the same model: the run-to-run noise floor |
 
 Two layers, both in [0, 1], averaged per item:
 
@@ -157,12 +159,13 @@ than assumed:
 python3 pipeline/eval/run.py --model "$MODEL_ID" --set pipeline/eval/worldcup-v1.jsonl --out run-a.json
 python3 pipeline/eval/run.py --model "$MODEL_ID" --set pipeline/eval/worldcup-v1.jsonl --out run-b.json
 
-python3 -c "
-import json
-a = json.load(open('run-a.json'))['summary']['set_score']
-b = json.load(open('run-b.json'))['summary']['set_score']
-print(f'set means: {a:.4f} vs {b:.4f}  drift: {abs(a-b):.4f}')"
+python3 pipeline/eval/drift.py run-a.json run-b.json --out drift.json
 ```
+
+`drift.py` refuses to compare two runs that differ in anything but time: model,
+judge, rubric version, eval-set hash, or workload. It also splits the items
+whose score moved by cause: `judge` if the response was byte-identical,
+`generation` if it changed. The two have different fixes.
 
 Record the drift in `rubric-v1.md`. Keep `--concurrency` at its default of 1
 for this: concurrent requests share a vLLM batch and batching is itself a
