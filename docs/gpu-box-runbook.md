@@ -146,7 +146,44 @@ requests as slots. What to watch, in order of how well it demonstrates the point
 If the queue never forms, `--max-num-seqs` is too high relative to concurrency. Raise
 `--concurrency` or lower `VLLM_MAX_NUM_SEQS` in `.env` and restart `vllm`.
 
-## 6. Tear down
+## 6. Eval baseline (S2-4)
+
+About 20 minutes. Do this before the burst in step 5, or restart `vllm` after
+it: a server that has just served 60 concurrent requests is not the idle one
+the baseline assumes.
+
+`vllm` publishes no host port, so run the eval in a throwaway `api` container
+on the compose network, with the repo mounted so results land on the host:
+
+```bash
+eval_run() {
+  docker compose run --rm --no-deps --user "$(id -u):$(id -g)" \
+    -v "$PWD:/repo" -w /repo --entrypoint python3 api \
+    pipeline/eval/run.py --model Qwen/Qwen2.5-7B-Instruct \
+    --set pipeline/eval/worldcup-v1.jsonl --out "$1"
+}
+
+# Two identical runs, back to back, nothing changed between them.
+eval_run pipeline/eval/results/base-v1-a.json
+eval_run pipeline/eval/results/base-v1-b.json
+
+python3 pipeline/eval/drift.py \
+  pipeline/eval/results/base-v1-a.json pipeline/eval/results/base-v1-b.json \
+  --out pipeline/eval/results/base-v1-drift.json
+```
+
+Each run exits 1 with `INCOMPLETE` if any item failed, and then there is no
+set score. Read the `error` field on the failed items in the result file, fix
+the cause, and run both again. Do not commit a partial run.
+
+Then, before tearing down:
+
+- Commit the three files under `pipeline/eval/results/`.
+- Write the drift into the tolerance table in `pipeline/eval/rubric-v1.md`.
+- Replace the UNMEASURED baseline and drift rows in `docs/measurements.md`,
+  citing the result files.
+
+## 7. Tear down
 
 ```bash
 docker compose down          # stops containers, keeps cached weights

@@ -158,6 +158,8 @@ most interesting rows here into section 2 entries.
 | Naive HF transformers baseline | does not exist | No baseline implementation in the repo |
 | Dev iterations saved by the GPU-free path | nowhere | No before/after; no GPU CI ever existed |
 | Actual GPU session cost | `README.md:393` | No invoice or billing export |
+| Base-model eval score, Qwen2.5-7B on `worldcup-v1` | S2-4 acceptance; the reference every adapter is compared to | No run on the box yet. `docs/gpu-box-runbook.md` step 6 |
+| Run-to-run eval drift | `pipeline/eval/rubric-v1.md` tolerance table | Same run. Sprint 5's promotion bar cannot be set without it |
 | Tokens/sec from this project's own tooling | — | `scripts/loadtest.py` records TTFT and wall-clock only and never counts a token (`Results`, `scripts/loadtest.py:39`) |
 
 ---
