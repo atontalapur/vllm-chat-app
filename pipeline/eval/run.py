@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import statistics
 import subprocess
 import sys
@@ -41,7 +42,7 @@ import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +64,10 @@ class ItemResult:
     tripped_trap: bool
     error: str | None
     latency_s: float
+    # Per-claim verdicts, so a score that moves between runs can be traced to
+    # the claim that flipped. Empty for string-only items and failures.
+    must_state: list[dict[str, Any]] = field(default_factory=list)
+    must_not_claim: list[dict[str, Any]] = field(default_factory=list)
 
 
 class RunError(Exception):
@@ -82,6 +87,31 @@ def load_set(path: Path) -> list[dict[str, Any]]:
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+_SHA = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
+
+
+def _sha_or_none(value: str) -> str | None:
+    """Only a real object name counts. `git rev-parse HEAD` on an unborn branch
+    exits 128 and prints the literal `HEAD`, and a corrupt ref file can hold
+    anything; either would otherwise be recorded as the commit."""
+    value = value.strip()
+    return value if _SHA.fullmatch(value) else None
+
+
+def _git(repo: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(  # noqa: S603 - fixed argv, no shell
+            # Resolved from PATH on purpose: this runs on whatever box the
+            # eval runs on, where git's absolute path is not knowable here.
+            ["git", *args],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=repo,
+        )
+    except OSError:
+        return None
+
 
 def git_commit(repo: Path = REPO_ROOT) -> str | None:
     """The commit the run was scored at, which ties the number to the code.
@@ -90,39 +120,48 @@ def git_commit(repo: Path = REPO_ROOT) -> str | None:
     image, which has no git binary, and a baseline with no commit cannot be
     traced back to the rubric and runner that produced it.
     """
-    try:
-        out = subprocess.run(  # noqa: S603 - fixed argv, no shell
-            # Resolved from PATH on purpose: this runs on whatever box the
-            # eval runs on, where git's absolute path is not knowable here.
-            ["git", "rev-parse", "HEAD"],  # noqa: S607
-            capture_output=True,
-            text=True,
-            check=False,
-            cwd=repo,
-        )
-    except OSError:
-        return read_head(repo)
-    return out.stdout.strip() or read_head(repo)
+    out = _git(repo, "rev-parse", "HEAD")
+    if out is not None and out.returncode == 0:
+        sha = _sha_or_none(out.stdout)
+        if sha is not None:
+            return sha
+    return read_head(repo)
+
+
+def tree_dirty(repo: Path = REPO_ROOT) -> bool | None:
+    """Whether tracked files differ from the commit. None when git is missing:
+    unknown, which must not read as clean.
+
+    Untracked files are ignored, or the first run's result file would mark the
+    second run dirty.
+    """
+    out = _git(repo, "status", "--porcelain", "--untracked-files=no")
+    if out is None or out.returncode != 0:
+        return None
+    return bool(out.stdout.strip())
 
 
 def read_head(repo: Path) -> str | None:
     """Resolve HEAD from the files under `.git`, without the git binary."""
-    git_dir = repo / ".git"
-    if git_dir.is_file():  # a worktree: `.git` points at the real directory
-        git_dir = (repo / git_dir.read_text().split(":", 1)[1].strip()).resolve()
     try:
+        git_dir = repo / ".git"
+        if git_dir.is_file():  # a worktree: `.git` points at the real directory
+            git_dir = (repo / git_dir.read_text().split(":", 1)[1].strip()).resolve()
         head = (git_dir / "HEAD").read_text().strip()
-    except OSError:
+    except (OSError, IndexError):
         return None
     if not head.startswith("ref:"):
-        return head or None  # detached HEAD holds the sha itself
+        return _sha_or_none(head)  # detached HEAD holds the sha itself
 
     ref = head.split(":", 1)[1].strip()
-    # A worktree keeps its own HEAD but shares refs with the main checkout.
-    common = git_dir / "commondir"
-    ref_root = (git_dir / common.read_text().strip()).resolve() if common.is_file() else git_dir
     try:
-        return (ref_root / ref).read_text().strip()
+        # A worktree keeps its own HEAD but shares refs with the main checkout.
+        common = git_dir / "commondir"
+        ref_root = (git_dir / common.read_text().strip()).resolve() if common.is_file() else git_dir
+    except OSError:
+        return None
+    try:
+        return _sha_or_none((ref_root / ref).read_text())
     except OSError:
         pass
     try:
@@ -132,8 +171,56 @@ def read_head(repo: Path) -> str | None:
     for line in packed.splitlines():
         sha, _, name = line.partition(" ")
         if name == ref:
-            return sha
+            return _sha_or_none(sha)
     return None
+
+
+def _get_json(url: str, timeout_s: float, payload: dict[str, Any] | None = None) -> Any:
+    request = urllib.request.Request(  # noqa: S310 - http(s) base_url from argv
+        url,
+        data=None if payload is None else json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=timeout_s) as response:  # noqa: S310
+        return json.loads(response.read().decode())
+
+
+def server_identity(base_url: str, model: str, timeout_s: float) -> dict[str, str | None]:
+    """Which server build produced the run, so drift.py can refuse two runs
+    against different ones. Best effort: provenance never fails a run.
+
+    `version` comes from vLLM's `/version` (Ollama's `/api/version` as a local
+    fallback). `system_fingerprint` needs a completion, so one 1-token request
+    is spent on it; vLLM's reads like `vllm-0.28.0-b0c62709`.
+    """
+    root = base_url.rstrip("/").removesuffix("/v1")
+    version = None
+    for path in ("/version", "/api/version"):
+        try:
+            found = _get_json(root + path, timeout_s).get("version")
+        except (urllib.error.URLError, TimeoutError, ValueError, AttributeError):
+            continue
+        if isinstance(found, str):
+            version = found
+            break
+
+    fingerprint = None
+    try:
+        body = _get_json(
+            f"{base_url.rstrip('/')}/chat/completions",
+            timeout_s,
+            {
+                "model": model,
+                "messages": [{"role": "user", "content": "ok"}],
+                "max_tokens": 1,
+                "temperature": 0,
+            },
+        )
+        found = body.get("system_fingerprint")
+        fingerprint = found if isinstance(found, str) else None
+    except (urllib.error.URLError, TimeoutError, ValueError, AttributeError):
+        pass
+    return {"version": version, "system_fingerprint": fingerprint}
 
 
 def ask_model(
@@ -214,6 +301,8 @@ def score_one(
         tripped_trap=scored.tripped_trap,
         error=None,
         latency_s=round(time.perf_counter() - started, 3),
+        must_state=scored.must_state,
+        must_not_claim=scored.must_not_claim,
     )
 
 
@@ -272,6 +361,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.concurrency < 1:
         parser.error("--concurrency must be at least 1")
+    if args.limit is not None and args.limit < 1:
+        parser.error("--limit must be at least 1")
 
     judge_model = args.judge_model or args.model
     items = load_set(args.eval_set)
@@ -288,6 +379,22 @@ def main(argv: list[str] | None = None) -> int:
     def work(item: dict[str, Any]) -> ItemResult:
         return score_one(
             item, judge, args.base_url, args.model, args.max_tokens, args.timeout_s, args.seed
+        )
+
+    server = server_identity(args.base_url, args.model, args.timeout_s)
+    if server["version"] is None:
+        print(
+            "WARNING: cannot read the server version; drift.py will refuse this run",
+            file=sys.stderr,
+        )
+
+    commit = git_commit()
+    if commit is None:
+        # Warn up front, before the GPU time is spent: drift.py refuses a run
+        # with no commit, because its number cannot be traced to its code.
+        print(
+            "WARNING: cannot resolve the git commit; this run will not be comparable",
+            file=sys.stderr,
         )
 
     started = time.perf_counter()
@@ -312,6 +419,7 @@ def main(argv: list[str] | None = None) -> int:
             "sha256": sha256_file(args.eval_set),
             "items": len(items),
         },
+        "server": server,
         "workload": {
             "max_tokens": args.max_tokens,
             "temperature": 0,
@@ -320,7 +428,8 @@ def main(argv: list[str] | None = None) -> int:
             "base_url": args.base_url,
         },
         "provenance": {
-            "commit": git_commit(),
+            "commit": commit,
+            "tree_dirty": tree_dirty(),
             "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "wall_s": round(wall_s, 2),
         },

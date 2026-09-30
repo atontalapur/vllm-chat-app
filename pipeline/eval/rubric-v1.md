@@ -7,10 +7,13 @@ means, and silently makes today's numbers incomparable with last week's. Make a
 `rubric-v2.md` and re-record the baseline against it.
 
 One amendment, made before any score was recorded against this version
-(2026-09-30, S2-4): the verdict arrays gained per-item `minItems`/`maxItems`.
-Where the judge already returned the right count this changes no output. Where
-it did not, the item used to fail and void the run; now it is scored. With no
-baseline yet, there was nothing for the change to make incomparable.
+(2026-09-30, S2-4): the verdicts changed from positional arrays to objects
+keyed by claim number, each echoing its claim's text. Arrays aligned a verdict
+to a claim by position alone, so a judge that skipped a claim either voided the
+run on a count mismatch or, with the count forced, silently scored every later
+verdict against the wrong claim. With no baseline yet, there was nothing for
+the change to make incomparable. This was the last edit in place: the next
+change is `rubric-v2`.
 
 `judge.py` reads the identifiers in this document. Rename a heading here and
 the code stops matching; that is deliberate, so the two cannot drift apart
@@ -49,16 +52,24 @@ the judge would hand over the answer key.
 ## What the judge returns
 
 Strict JSON, enforced by vLLM's `response_format: {"type": "json_schema"}`, so
-a malformed reply is impossible rather than merely unlikely. Each array's
-`minItems` and `maxItems` are set to that item's claim count, so the judge
-cannot return one verdict too many or too few. Per claim, in order:
+a malformed reply is impossible rather than merely unlikely. The schema is
+built per item. Each claim is answered under its number from the prompt, and
+must repeat the claim's text exactly (`const`) before judging it:
 
 ```json
 {
-  "must_state":     [{"reason": "...", "stated": true}, ...],
-  "must_not_claim": [{"reason": "...", "claimed": false}, ...]
+  "must_state": {
+    "1": {"claim": "India won by 6 wickets", "reason": "...", "stated": true}
+  },
+  "must_not_claim": {
+    "1": {"claim": "the margin was in runs", "reason": "...", "claimed": false}
+  }
 }
 ```
+
+A verdict can therefore only sit under its own claim. `judge.py` checks the
+numbers and the echoed text again, for any server that ignores the schema, and
+fails the item rather than guess.
 
 `reason` comes before the boolean on purpose: the model writes its
 justification first and commits to the verdict second, which grades harder
@@ -103,7 +114,13 @@ assumed**, and until it is measured on hardware it is UNMEASURED:
 
 | Quantity | Value |
 |---|---|
-| Set-mean drift across two identical runs | UNMEASURED |
+| Set-mean drift, largest gap across three identical runs | UNMEASURED |
+
+Three runs, not two: one pair is one sample of the noise, and a lucky pair sets
+the floor too low. The measurement has the judge grading its own model's
+answers (`judge_is_model_under_test`), with no adapter in the batch. Whether the
+floor holds for an adapter graded by the base is a Sprint 5 question, and the
+drift report carries the flag so the two are not confused.
 
 Measure it with the method in `pipeline/eval/README.md` ("Measuring the
 run-to-run tolerance") and record the number here before any gate threshold is

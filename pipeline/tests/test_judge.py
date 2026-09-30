@@ -22,18 +22,19 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from pipeline.eval import judge as judge_module  # noqa: E402
 from pipeline.eval.judge import (  # noqa: E402
     RUBRIC_VERSION,
     ItemScore,
     Judge,
     JudgeError,
+    align,
     build_messages,
     compute_judge_score,
     normalise,
     schema_for,
     score_strings,
 )
+from pipeline.tests.verdicts import verdicts  # noqa: E402
 
 ITEM: dict[str, Any] = {
     "id": "wc-001",
@@ -67,10 +68,7 @@ def judge() -> Judge:
 
 def all_good() -> dict[str, Any]:
     """Verdicts matching ITEM: its one claim stated, its one trap untripped."""
-    return {
-        "must_state": [{"reason": "r", "stated": True}],
-        "must_not_claim": [{"reason": "r", "claimed": False}],
-    }
+    return verdicts(ITEM["judge"]["must_state"], ITEM["judge"]["must_not_claim"])
 
 
 # --- the deterministic layer -------------------------------------------------
@@ -225,28 +223,54 @@ def test_request_demands_a_json_schema(monkeypatch: pytest.MonkeyPatch) -> None:
     assert fmt["json_schema"]["schema"]["required"] == ["must_state", "must_not_claim"]
 
 
-def test_schema_pins_each_verdict_array_to_its_claim_count(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Shape alone lets the decoder emit one verdict too many or too few, and a
-    miscounted item cannot be scored, so it voids the run."""
-    sent = stub_judge(monkeypatch, all_good())
+def test_schema_keys_each_verdict_to_its_claim(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Positional arrays let a skipped claim shift every later verdict onto the
+    wrong one. Each verdict now sits under its claim's number and must echo the
+    claim's text. Unequal counts, so swapped sides would fail here."""
+    item = {**ITEM, "judge": {"must_state": ["a", "b"], "must_not_claim": ["c"]}}
+    sent = stub_judge(monkeypatch, verdicts(["a", "b"], ["c"]))
 
-    judge().score_item(ITEM, "India beat Sri Lanka by 6 wickets.")
+    judge().score_item(item, "India beat Sri Lanka by 6 wickets.")
 
-    props = sent[0]["response_format"]["json_schema"]["schema"]["properties"]
-    n_state = len(ITEM["judge"]["must_state"])
-    n_not_claim = len(ITEM["judge"]["must_not_claim"])
-    assert props["must_state"]["minItems"] == props["must_state"]["maxItems"] == n_state
-    assert props["must_not_claim"]["minItems"] == props["must_not_claim"]["maxItems"] == n_not_claim
+    schema = sent[0]["response_format"]["json_schema"]["schema"]["properties"]
+    state = schema["must_state"]
+    assert state["required"] == ["1", "2"]
+    assert state["additionalProperties"] is False
+    assert state["properties"]["2"]["properties"]["claim"]["const"] == "b"
+    assert state["properties"]["1"]["required"] == ["claim", "reason", "stated"]
+    assert schema["must_not_claim"]["required"] == ["1"]
+    assert schema["must_not_claim"]["properties"]["1"]["properties"]["claim"]["const"] == "c"
 
 
-def test_per_item_schema_leaves_the_shared_schema_untouched() -> None:
-    """Pinning lengths on the module-level schema would leak one item's counts
-    into the next item's request."""
-    schema_for(3, 1)
+def test_schema_for_uses_no_array_length_keywords() -> None:
+    """Keyed objects need only properties/required/const, which every backend
+    this runs on supports; no dependence on minItems or prefixItems."""
+    text = json.dumps(schema_for(["a", "b"], ["c"]))
 
-    assert "minItems" not in judge_module._SCHEMA["properties"]["must_state"]
+    for keyword in ("minItems", "maxItems", "prefixItems", "items"):
+        assert f'"{keyword}"' not in text
+
+
+def test_an_empty_claim_side_requires_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    item = {**ITEM, "judge": {"must_state": ["a"], "must_not_claim": []}}
+    sent = stub_judge(monkeypatch, verdicts(["a"], []))
+
+    result = judge().score_item(item, "India beat Sri Lanka by 6 wickets.")
+
+    side = sent[0]["response_format"]["json_schema"]["schema"]["properties"]["must_not_claim"]
+    assert side["required"] == []
+    assert result.judge_score == 1.0
+
+
+def test_verdicts_are_returned_in_claim_order_whatever_the_key_order() -> None:
+    got = {
+        "2": {"claim": "b", "reason": "r", "stated": False},
+        "1": {"claim": "a", "reason": "r", "stated": True},
+    }
+
+    ordered = align(got, ["a", "b"], "must_state", "wc-x")
+
+    assert [v["claim"] for v in ordered] == ["a", "b"]
 
 
 def test_no_call_is_made_for_a_string_only_item(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -264,17 +288,48 @@ def test_no_call_is_made_for_a_string_only_item(monkeypatch: pytest.MonkeyPatch)
 # --- failure modes -----------------------------------------------------------
 
 
-def test_misaligned_verdicts_raise_rather_than_score(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Two verdicts for one claim cannot be matched to it. Scoring that invents data."""
+def test_a_missing_claim_number_raises_rather_than_score(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A skipped claim cannot be scored: filling it in would invent data."""
+    reply = verdicts(ITEM["judge"]["must_state"], ITEM["judge"]["must_not_claim"])
+    reply["must_state"]["2"] = reply["must_state"]["1"]
+    stub_judge(monkeypatch, reply)
+
+    with pytest.raises(JudgeError, match="answered must_state"):
+        judge().score_item(ITEM, "India beat Sri Lanka by 6 wickets.")
+
+
+def test_a_verdict_under_the_wrong_claim_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """What positional arrays could not catch: the right count, the wrong claim."""
+    item = {**ITEM, "judge": {"must_state": ["a", "b"], "must_not_claim": []}}
+    reply = verdicts(["b", "a"], [])  # both answered, under swapped numbers
+    stub_judge(monkeypatch, reply)
+
+    with pytest.raises(JudgeError, match="does not echo its claim"):
+        judge().score_item(item, "India beat Sri Lanka by 6 wickets.")
+
+
+def test_a_non_boolean_verdict_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    reply = all_good()
+    reply["must_state"]["1"]["stated"] = "yes"
+    stub_judge(monkeypatch, reply)
+
+    with pytest.raises(JudgeError, match="no boolean stated"):
+        judge().score_item(ITEM, "India beat Sri Lanka by 6 wickets.")
+
+
+def test_array_shaped_verdicts_are_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The old positional shape, from a server that ignored the schema."""
     stub_judge(
         monkeypatch,
         {
-            "must_state": [{"reason": "r", "stated": True}, {"reason": "r", "stated": False}],
+            "must_state": [{"reason": "r", "stated": True}],
             "must_not_claim": [{"reason": "r", "claimed": False}],
         },
     )
 
-    with pytest.raises(JudgeError, match="verdicts"):
+    with pytest.raises(JudgeError, match="answered must_state list"):
         judge().score_item(ITEM, "India beat Sri Lanka by 6 wickets.")
 
 
@@ -307,13 +362,7 @@ def test_scores_a_real_item_from_the_committed_set(monkeypatch: pytest.MonkeyPat
     first = json.loads(path.read_text().splitlines()[0])
     claims = first.get("judge") or {}
     stub_judge(
-        monkeypatch,
-        {
-            "must_state": [{"reason": "r", "stated": True} for _ in claims.get("must_state", [])],
-            "must_not_claim": [
-                {"reason": "r", "claimed": False} for _ in claims.get("must_not_claim", [])
-            ],
-        },
+        monkeypatch, verdicts(claims.get("must_state", []), claims.get("must_not_claim", []))
     )
 
     result = judge().score_item(first, first["gold"])
