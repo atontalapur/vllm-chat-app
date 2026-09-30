@@ -42,40 +42,55 @@ RUBRIC_VERSION = "rubric-v1"
 
 _WHITESPACE = re.compile(r"\s+")
 
-# Enforced by vLLM's structured output, so a malformed reply is impossible
-# rather than merely unlikely. Property order matches the rubric: reason first,
-# verdict second, so the model justifies before it commits.
-_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "must_state": {
-            "type": "array",
-            "items": {
+# Verdict key per side, and the claim-number keys each side is answered under.
+_VERDICT_KEY = {"must_state": "stated", "must_not_claim": "claimed"}
+
+
+def _side_schema(claims: list[str], verdict_key: str) -> dict[str, Any]:
+    """One object per claim, keyed by the claim's number in the prompt, each
+    echoing the claim text through `const`.
+
+    Arrays aligned verdicts to claims by position, so a judge that skipped a
+    claim shifted every later verdict onto the wrong one. Here a verdict can
+    only sit under its own claim's number, and the decoder has to write out
+    that claim before judging it.
+    """
+    return {
+        "type": "object",
+        "properties": {
+            str(i + 1): {
                 "type": "object",
                 "properties": {
+                    "claim": {"type": "string", "const": claim},
+                    # Reason before verdict, per the rubric: the model
+                    # justifies before it commits.
                     "reason": {"type": "string"},
-                    "stated": {"type": "boolean"},
+                    verdict_key: {"type": "boolean"},
                 },
-                "required": ["reason", "stated"],
+                "required": ["claim", "reason", verdict_key],
                 "additionalProperties": False,
-            },
+            }
+            for i, claim in enumerate(claims)
         },
-        "must_not_claim": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "reason": {"type": "string"},
-                    "claimed": {"type": "boolean"},
-                },
-                "required": ["reason", "claimed"],
-                "additionalProperties": False,
-            },
+        "required": [str(i + 1) for i in range(len(claims))],
+        "additionalProperties": False,
+    }
+
+
+def schema_for(must_state: list[str], must_not_claim: list[str]) -> dict[str, Any]:
+    """The verdict schema for one item. Enforced by vLLM's structured output,
+    so a malformed or misaligned reply is impossible rather than merely
+    unlikely; `align` checks it again for servers that ignore the schema."""
+    return {
+        "type": "object",
+        "properties": {
+            "must_state": _side_schema(must_state, "stated"),
+            "must_not_claim": _side_schema(must_not_claim, "claimed"),
         },
-    },
-    "required": ["must_state", "must_not_claim"],
-    "additionalProperties": False,
-}
+        "required": ["must_state", "must_not_claim"],
+        "additionalProperties": False,
+    }
+
 
 _SYSTEM = (
     "You grade answers to cricket World Cup questions against a reference answer. "
@@ -162,13 +177,13 @@ def build_messages(
         listed = "\n".join(f"{i + 1}. {c}" for i, c in enumerate(must_state))
         lines.append(
             "\nFor each claim below, does the CANDIDATE ANSWER state it? "
-            f"Answer in the same order.\n{listed}"
+            f"Answer each under its number, repeating the claim exactly.\n{listed}"
         )
     if must_not_claim:
         listed = "\n".join(f"{i + 1}. {c}" for i, c in enumerate(must_not_claim))
         lines.append(
             "\nFor each claim below, does the CANDIDATE ANSWER make it? "
-            f"Answer in the same order.\n{listed}"
+            f"Answer each under its number, repeating the claim exactly.\n{listed}"
         )
     return [
         {"role": "system", "content": _SYSTEM},
@@ -235,21 +250,20 @@ class Judge:
             "max_tokens": 1024,
             "response_format": {
                 "type": "json_schema",
-                "json_schema": {"name": "verdicts", "strict": True, "schema": _SCHEMA},
+                "json_schema": {
+                    "name": "verdicts",
+                    "strict": True,
+                    "schema": schema_for(must_state, must_not_claim),
+                },
             },
         }
         body = self._post(payload)
         verdicts = self._parse(body, item["id"])
 
-        got_state = verdicts.get("must_state", [])
-        got_not_claim = verdicts.get("must_not_claim", [])
-        # A verdict list of the wrong length cannot be aligned to the claims it
-        # is supposed to answer, so scoring it would be inventing data.
-        if len(got_state) != len(must_state) or len(got_not_claim) != len(must_not_claim):
-            raise JudgeError(
-                f"{item['id']}: judge returned {len(got_state)}/{len(got_not_claim)} verdicts "
-                f"for {len(must_state)}/{len(must_not_claim)} claims"
-            )
+        got_state = align(verdicts.get("must_state"), must_state, "must_state", item["id"])
+        got_not_claim = align(
+            verdicts.get("must_not_claim"), must_not_claim, "must_not_claim", item["id"]
+        )
 
         return ItemScore(
             item_id=item["id"],
@@ -272,6 +286,32 @@ class Judge:
             # server ignored the schema and every score in the run is suspect.
             raise JudgeError(f"{item_id}: judge returned non-JSON: {content[:200]}") from exc
         return parsed
+
+
+def align(got: Any, claims: list[str], side: str, item_id: str) -> list[dict[str, Any]]:
+    """Verdicts in claim order, or JudgeError if any cannot be matched to its claim.
+
+    vLLM's schema already guarantees this. The check is for any server that
+    ignores `response_format`: a verdict that cannot be tied to its claim
+    cannot be scored without inventing data.
+    """
+    if not claims and not got:
+        return []
+    expected = {str(i + 1) for i in range(len(claims))}
+    if not isinstance(got, dict) or set(got) != expected:
+        answered = sorted(got) if isinstance(got, dict) else type(got).__name__
+        raise JudgeError(f"{item_id}: judge answered {side} {answered} for {len(claims)} claims")
+
+    verdict_key = _VERDICT_KEY[side]
+    ordered = []
+    for i, claim in enumerate(claims):
+        verdict = got[str(i + 1)]
+        if not isinstance(verdict, dict) or verdict.get("claim") != claim:
+            raise JudgeError(f"{item_id}: {side} verdict {i + 1} does not echo its claim")
+        if not isinstance(verdict.get(verdict_key), bool):
+            raise JudgeError(f"{item_id}: {side} verdict {i + 1} has no boolean {verdict_key}")
+        ordered.append(verdict)
+    return ordered
 
 
 def compute_judge_score(

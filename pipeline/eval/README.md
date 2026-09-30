@@ -92,6 +92,8 @@ python3 pipeline/eval/validate.py pipeline/eval/worldcup-v1.jsonl
 |---|---|
 | `rubric-v1.md` | The scoring contract. Versioned, never edited in place: a change to the wording or the arithmetic makes old scores incomparable with new ones |
 | `judge.py` | Implements it. Standard library only, like everything in `pipeline/` |
+| `run.py` | Scores any served model against a set |
+| `drift.py` | Compares identical runs of the same model: the run-to-run noise floor |
 
 Two layers, both in [0, 1], averaged per item:
 
@@ -153,16 +155,22 @@ depend on what else shares its batch. So the drift has to be measured rather
 than assumed:
 
 ```bash
-# On the box, with the stack serving. Two identical runs, nothing changed.
-python3 pipeline/eval/run.py --model "$MODEL_ID" --set pipeline/eval/worldcup-v1.jsonl --out run-a.json
-python3 pipeline/eval/run.py --model "$MODEL_ID" --set pipeline/eval/worldcup-v1.jsonl --out run-b.json
+# On the box, with the stack serving. Three identical runs, nothing changed.
+for r in a b c; do
+  python3 pipeline/eval/run.py --model "$MODEL_ID" --set pipeline/eval/worldcup-v1.jsonl --out "run-$r.json"
+done
 
-python3 -c "
-import json
-a = json.load(open('run-a.json'))['summary']['set_score']
-b = json.load(open('run-b.json'))['summary']['set_score']
-print(f'set means: {a:.4f} vs {b:.4f}  drift: {abs(a-b):.4f}')"
+python3 pipeline/eval/drift.py run-a.json run-b.json run-c.json --out drift.json
 ```
+
+`drift.py` reports the largest gap between any two runs, since one pair is a
+single sample of the noise. It refuses runs that differ in anything but time:
+model, judge, rubric version, eval-set hash, workload, commit, or server build. `base_url` is the one
+exception, since the same server has different names from the host and from a
+container. A field missing from either run, a dirty tree, or the same run passed
+twice is also refused. It also splits the items
+whose score moved by cause: `judge` if the response was byte-identical,
+`generation` if it changed. The two have different fixes.
 
 Record the drift in `rubric-v1.md`. Keep `--concurrency` at its default of 1
 for this: concurrent requests share a vLLM batch and batching is itself a

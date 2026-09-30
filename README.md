@@ -62,7 +62,7 @@ says it is better. The plan is in [docs/pipeline-plan.md](docs/pipeline-plan.md)
 |---|---|---|
 | 0 | Spikes: runtime LoRA, GPU co-residency, logprob shape | measured on the 3090 |
 | 1 | Signal capture: trace store, logprob capture, async writer, metrics | complete |
-| 2 | Held-out eval harness | eval set authored; judge and runner next |
+| 2 | Held-out eval harness | eval set, judge, runner and drift tool built; base-model baseline needs the box |
 | 3-6 | Curation, training, eval gate, loop operation | planned |
 
 Sprint 0 changed the plan's shape rather than confirming it: a 7B QLoRA train needs

@@ -11,7 +11,10 @@ would make two numbers quietly incomparable:
 """
 
 import json
+import shutil
+import subprocess
 import sys
+import urllib.error
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from pipeline.eval import run as runner  # noqa: E402
 from pipeline.eval.judge import Judge, JudgeError  # noqa: E402
+from pipeline.tests.verdicts import answer_schema  # noqa: E402
 
 EVAL_SET = Path(__file__).resolve().parents[1] / "eval" / "worldcup-v1.jsonl"
 
@@ -161,22 +165,8 @@ def stub_everything(
     monkeypatch.setattr(runner, "ask_model", lambda base_url, model, prompt, mt, ts, seed: answer)
 
     def fake_post(self: Judge, payload: dict[str, Any]) -> dict[str, Any]:
-        claims = payload["messages"][1]["content"]
-        must_state = claims.count("\n1.") and 1 or 0
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "content": json.dumps(
-                            {
-                                "must_state": [{"reason": "r", "stated": True}] * must_state,
-                                "must_not_claim": [{"reason": "r", "claimed": False}],
-                            }
-                        )
-                    }
-                }
-            ]
-        }
+        reply = answer_schema(payload["response_format"]["json_schema"]["schema"])
+        return {"choices": [{"message": {"content": json.dumps(reply)}}]}
 
     monkeypatch.setattr(Judge, "_post", fake_post)
 
@@ -294,3 +284,206 @@ def test_rejects_zero_concurrency(tmp_path: Path) -> None:
                 "0",
             ]
         )
+
+
+# --- commit provenance without a git binary ----------------------------------
+
+SHA = "a" * 40
+
+
+def fake_repo(tmp_path: Path, head: str = "ref: refs/heads/main\n") -> Path:
+    git = tmp_path / ".git"
+    (git / "refs" / "heads").mkdir(parents=True)
+    (git / "HEAD").write_text(head)
+    return tmp_path
+
+
+def test_commit_is_read_from_the_files_when_git_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The api image on the box has no git. A baseline with no commit cannot be
+    traced to the rubric and runner that produced it."""
+    repo = fake_repo(tmp_path)
+    (repo / ".git" / "refs" / "heads" / "main").write_text(SHA + "\n")
+
+    def no_git(*_: Any, **__: Any) -> None:
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(runner.subprocess, "run", no_git)
+
+    assert runner.git_commit(repo) == SHA
+
+
+def test_read_head_finds_a_packed_ref(tmp_path: Path) -> None:
+    repo = fake_repo(tmp_path)
+    (repo / ".git" / "packed-refs").write_text(
+        f"# pack-refs with: peeled fully-peeled sorted\n{SHA} refs/heads/main\n"
+    )
+
+    assert runner.read_head(repo) == SHA
+
+
+def test_read_head_returns_a_detached_sha(tmp_path: Path) -> None:
+    assert runner.read_head(fake_repo(tmp_path, head=SHA + "\n")) == SHA
+
+
+def test_read_head_follows_a_worktree_to_the_shared_refs(tmp_path: Path) -> None:
+    main = fake_repo(tmp_path / "main")
+    (main / ".git" / "refs" / "heads" / "feat").write_text(SHA + "\n")
+    wt_git = main / ".git" / "worktrees" / "wt"
+    wt_git.mkdir(parents=True)
+    (wt_git / "HEAD").write_text("ref: refs/heads/feat\n")
+    (wt_git / "commondir").write_text("../..\n")
+    worktree = tmp_path / "wt"
+    worktree.mkdir()
+    (worktree / ".git").write_text(f"gitdir: {wt_git}\n")
+
+    assert runner.read_head(worktree) == SHA
+
+
+def test_read_head_is_none_outside_a_repo(tmp_path: Path) -> None:
+    assert runner.read_head(tmp_path) is None
+
+
+@pytest.mark.skipif(
+    shutil.which("git") is None or not (runner.REPO_ROOT / ".git").exists(),
+    reason="needs a git checkout and a git binary",
+)
+def test_read_head_matches_git_in_this_checkout() -> None:
+    sha = runner.git_commit()
+
+    assert sha is not None and len(sha) == 40
+    assert runner.read_head(runner.REPO_ROOT) == sha
+
+
+def git_exits(code: int, stdout: str) -> Any:
+    def fake(args: list[str], **_: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, code, stdout=stdout, stderr="fatal")
+
+    return fake
+
+
+def test_a_failing_git_falls_back_to_the_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """e.g. `dubious ownership` on a mounted repo: git present, exit 128, no sha."""
+    repo = fake_repo(tmp_path)
+    (repo / ".git" / "refs" / "heads" / "main").write_text(SHA + "\n")
+    monkeypatch.setattr(runner.subprocess, "run", git_exits(128, ""))
+
+    assert runner.git_commit(repo) == SHA
+
+
+def test_an_unborn_branch_records_no_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """git rev-parse HEAD exits 128 there and prints the literal `HEAD` to stdout."""
+    repo = fake_repo(tmp_path)
+    monkeypatch.setattr(runner.subprocess, "run", git_exits(128, "HEAD\n"))
+
+    assert runner.git_commit(repo) is None
+
+
+def test_a_non_sha_ref_is_not_recorded(tmp_path: Path) -> None:
+    repo = fake_repo(tmp_path)
+    (repo / ".git" / "refs" / "heads" / "main").write_text("API_KEY=secret\n")
+
+    assert runner.read_head(repo) is None
+
+
+def test_a_malformed_git_file_returns_none(tmp_path: Path) -> None:
+    """Recording provenance must never be what crashes a paid eval run."""
+    (tmp_path / ".git").write_text("garbage\n")
+
+    assert runner.read_head(tmp_path) is None
+
+
+def test_read_head_follows_a_relative_worktree_gitdir(tmp_path: Path) -> None:
+    main = fake_repo(tmp_path / "main")
+    (main / ".git" / "refs" / "heads" / "feat").write_text(SHA + "\n")
+    wt_git = main / ".git" / "worktrees" / "wt"
+    wt_git.mkdir(parents=True)
+    (wt_git / "HEAD").write_text("ref: refs/heads/feat\n")
+    (wt_git / "commondir").write_text("../..\n")
+    worktree = tmp_path / "wt"
+    worktree.mkdir()
+    (worktree / ".git").write_text("gitdir: ../main/.git/worktrees/wt\n")
+
+    assert runner.read_head(worktree) == SHA
+
+
+@pytest.mark.parametrize(("stdout", "dirty"), [("", False), (" M pipeline/eval/judge.py\n", True)])
+def test_tree_dirty_reads_git_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stdout: str, dirty: bool
+) -> None:
+    monkeypatch.setattr(runner.subprocess, "run", git_exits(0, stdout))
+
+    assert runner.tree_dirty(tmp_path) is dirty
+
+
+def test_tree_dirty_is_unknown_without_git(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unknown must not read as clean."""
+
+    def no_git(*_: Any, **__: Any) -> None:
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(runner.subprocess, "run", no_git)
+
+    assert runner.tree_dirty(tmp_path) is None
+
+
+@pytest.mark.parametrize("limit", ["0", "-1"])
+def test_limit_below_one_is_rejected(limit: str) -> None:
+    """0 gives a complete run with no score; -1 silently drops the last item."""
+    with pytest.raises(SystemExit):
+        runner.main(["--model", "m", "--set", str(EVAL_SET), "--out", "x.json", "--limit", limit])
+
+
+# --- server identity ---------------------------------------------------------
+
+
+def test_server_identity_reads_version_and_fingerprint(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[str] = []
+
+    def fake_get(url: str, timeout_s: float, payload: Any = None) -> Any:
+        seen.append(url)
+        if url.endswith("/version"):
+            return {"version": "0.28.0"}
+        return {"system_fingerprint": "vllm-0.28.0-b0c62709", "choices": []}
+
+    monkeypatch.setattr(runner, "_get_json", fake_get)
+
+    identity = runner.server_identity("http://vllm:8000/v1", "base", 5.0)
+
+    assert identity == {"version": "0.28.0", "system_fingerprint": "vllm-0.28.0-b0c62709"}
+    assert seen[0] == "http://vllm:8000/version"
+
+
+def test_server_identity_never_fails_the_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    def down(*_: Any, **__: Any) -> Any:
+        raise urllib.error.URLError("refused")
+
+    monkeypatch.setattr(runner, "_get_json", down)
+
+    assert runner.server_identity("http://vllm:8000/v1", "base", 5.0) == {
+        "version": None,
+        "system_fingerprint": None,
+    }
+
+
+def test_per_claim_verdicts_are_kept_in_the_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without them a moved score cannot be traced to the claim that flipped."""
+    stub_everything(monkeypatch)
+    item = {
+        "id": "wc-001",
+        "prompt": "q",
+        "gold": "g",
+        "must_include": [],
+        "judge": {"must_state": ["India won"], "must_not_claim": ["runs margin"]},
+    }
+    judge = Judge(base_url="http://x/v1", judge_model="base")
+
+    out = runner.score_one(item, judge, "http://x/v1", "m", 512, 10.0, 0)
+
+    assert [v["claim"] for v in out.must_state] == ["India won"]
+    assert out.must_not_claim[0]["claimed"] is False
