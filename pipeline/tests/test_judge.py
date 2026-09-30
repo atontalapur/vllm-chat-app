@@ -22,6 +22,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from pipeline.eval import judge as judge_module  # noqa: E402
 from pipeline.eval.judge import (  # noqa: E402
     RUBRIC_VERSION,
     ItemScore,
@@ -30,6 +31,7 @@ from pipeline.eval.judge import (  # noqa: E402
     build_messages,
     compute_judge_score,
     normalise,
+    schema_for,
     score_strings,
 )
 
@@ -221,6 +223,30 @@ def test_request_demands_a_json_schema(monkeypatch: pytest.MonkeyPatch) -> None:
     assert fmt["type"] == "json_schema"
     assert fmt["json_schema"]["strict"] is True
     assert fmt["json_schema"]["schema"]["required"] == ["must_state", "must_not_claim"]
+
+
+def test_schema_pins_each_verdict_array_to_its_claim_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shape alone lets the decoder emit one verdict too many or too few, and a
+    miscounted item cannot be scored, so it voids the run."""
+    sent = stub_judge(monkeypatch, all_good())
+
+    judge().score_item(ITEM, "India beat Sri Lanka by 6 wickets.")
+
+    props = sent[0]["response_format"]["json_schema"]["schema"]["properties"]
+    n_state = len(ITEM["judge"]["must_state"])
+    n_not_claim = len(ITEM["judge"]["must_not_claim"])
+    assert props["must_state"]["minItems"] == props["must_state"]["maxItems"] == n_state
+    assert props["must_not_claim"]["minItems"] == props["must_not_claim"]["maxItems"] == n_not_claim
+
+
+def test_per_item_schema_leaves_the_shared_schema_untouched() -> None:
+    """Pinning lengths on the module-level schema would leak one item's counts
+    into the next item's request."""
+    schema_for(3, 1)
+
+    assert "minItems" not in judge_module._SCHEMA["properties"]["must_state"]
 
 
 def test_no_call_is_made_for_a_string_only_item(monkeypatch: pytest.MonkeyPatch) -> None:

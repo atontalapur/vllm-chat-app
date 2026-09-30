@@ -31,6 +31,7 @@ box.
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 import urllib.error
@@ -44,7 +45,9 @@ _WHITESPACE = re.compile(r"\s+")
 
 # Enforced by vLLM's structured output, so a malformed reply is impossible
 # rather than merely unlikely. Property order matches the rubric: reason first,
-# verdict second, so the model justifies before it commits.
+# verdict second, so the model justifies before it commits. The array lengths
+# are set per item by `schema_for`: without them the shape is enforced but the
+# count is not, and one miscounted item voids a whole run.
 _SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -76,6 +79,20 @@ _SCHEMA: dict[str, Any] = {
     "required": ["must_state", "must_not_claim"],
     "additionalProperties": False,
 }
+
+
+def schema_for(n_state: int, n_not_claim: int) -> dict[str, Any]:
+    """The verdict schema with each array pinned to its claim count.
+
+    The decoder then cannot emit one verdict too many or too few, which the
+    length check in `Judge.score_item` would otherwise have to reject.
+    """
+    schema = copy.deepcopy(_SCHEMA)
+    for key, n in (("must_state", n_state), ("must_not_claim", n_not_claim)):
+        schema["properties"][key]["minItems"] = n
+        schema["properties"][key]["maxItems"] = n
+    return schema
+
 
 _SYSTEM = (
     "You grade answers to cricket World Cup questions against a reference answer. "
@@ -235,7 +252,11 @@ class Judge:
             "max_tokens": 1024,
             "response_format": {
                 "type": "json_schema",
-                "json_schema": {"name": "verdicts", "strict": True, "schema": _SCHEMA},
+                "json_schema": {
+                    "name": "verdicts",
+                    "strict": True,
+                    "schema": schema_for(len(must_state), len(must_not_claim)),
+                },
             },
         }
         body = self._post(payload)

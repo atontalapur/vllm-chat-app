@@ -6,6 +6,12 @@ change to the wording, the schema, or the arithmetic below changes what a score
 means, and silently makes today's numbers incomparable with last week's. Make a
 `rubric-v2.md` and re-record the baseline against it.
 
+One amendment, made before any score was recorded against this version
+(2026-09-30, S2-4): the verdict arrays gained per-item `minItems`/`maxItems`.
+Where the judge already returned the right count this changes no output. Where
+it did not, the item used to fail and void the run; now it is scored. With no
+baseline yet, there was nothing for the change to make incomparable.
+
 `judge.py` reads the identifiers in this document. Rename a heading here and
 the code stops matching; that is deliberate, so the two cannot drift apart
 unnoticed.
@@ -43,8 +49,9 @@ the judge would hand over the answer key.
 ## What the judge returns
 
 Strict JSON, enforced by vLLM's `response_format: {"type": "json_schema"}`, so
-a malformed reply is impossible rather than merely unlikely. Per claim, in
-order:
+a malformed reply is impossible rather than merely unlikely. Each array's
+`minItems` and `maxItems` are set to that item's claim count, so the judge
+cannot return one verdict too many or too few. Per claim, in order:
 
 ```json
 {
